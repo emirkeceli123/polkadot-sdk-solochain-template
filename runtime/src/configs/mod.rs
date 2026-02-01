@@ -12,6 +12,7 @@ use frame_support::{
     },
     PalletId,
 };
+use sp_runtime::traits::AccountIdConversion;
 use frame_system::limits::{BlockLength, BlockWeights};
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use sp_runtime::{traits::One, Perbill};
