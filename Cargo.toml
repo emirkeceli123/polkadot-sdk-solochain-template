@@ -1,35 +1,48 @@
 [workspace.package]
 license = "MIT-0"
-authors = ["Parity Technologies <admin@parity.io>"]
-homepage = "https://paritytech.github.io/polkadot-sdk/"
-repository = "https://github.com/paritytech/polkadot-sdk-solochain-template.git"
+authors = ["KOD Chain Team"]
+homepage = "https://kod.services"
+repository = "https://github.com/emirkeceli123/polkadot-sdk-solochain-template.git"
 edition = "2021"
 
 [workspace]
 members = [
     "node",
     "pallets/template",
+    "pallets/block-reward",
     "runtime",
 ]
 resolver = "2"
 
 [workspace.dependencies]
-solochain-template-runtime = { path = "./runtime", default-features = false }
+# Local crates
+kod-runtime = { path = "./runtime", default-features = false }
 pallet-template = { path = "./pallets/template", default-features = false }
+pallet-block-reward = { path = "./pallets/block-reward", default-features = false }
+
+# CLI and utilities
 clap = { version = "4.5.13" }
-frame-benchmarking-cli = { version = "47.0.0", default-features = false }
-frame-metadata-hash-extension = { version = "0.8.0", default-features = false }
-frame-system = { version = "40.1.0", default-features = false }
 futures = { version = "0.3.31" }
 jsonrpsee = { version = "0.24.3" }
-pallet-transaction-payment = { version = "40.0.0", default-features = false }
-pallet-transaction-payment-rpc = { version = "43.0.0", default-features = false }
+serde_json = { version = "1.0.132", default-features = false }
+codec = { version = "3.7.4", default-features = false, package = "parity-scale-codec" }
+scale-info = { version = "2.11.6", default-features = false }
+log = { version = "0.4", default-features = false }
+sha3 = "0.10"
+hex = "0.4"
+parking_lot = "0.12"
+rand = "0.8"
+directories = "5.0"
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+async-trait = "0.1"
+
+# Substrate Client crates (stable2503)
+frame-benchmarking-cli = { version = "47.0.0", default-features = false }
 sc-basic-authorship = { version = "0.49.0", default-features = false }
 sc-cli = { version = "0.51.0", default-features = false }
 sc-client-api = { version = "39.0.0", default-features = false }
 sc-consensus = { version = "0.48.0", default-features = false }
-sc-consensus-aura = { version = "0.49.0", default-features = false }
-sc-consensus-grandpa = { version = "0.34.0", default-features = false }
+sc-consensus-pow = { version = "0.48.0", default-features = false }
 sc-executor = { version = "0.42.0", default-features = false }
 sc-network = { version = "0.49.1", default-features = false }
 sc-offchain = { version = "44.0.0", default-features = false }
@@ -37,10 +50,13 @@ sc-service = { version = "0.50.0", default-features = false }
 sc-telemetry = { version = "28.1.0", default-features = false }
 sc-transaction-pool = { version = "39.0.0", default-features = false }
 sc-transaction-pool-api = { version = "39.0.0", default-features = false }
+
+# Substrate Primitives (stable2503)
 sp-api = { version = "36.0.1", default-features = false }
 sp-block-builder = { version = "36.0.0", default-features = false }
 sp-blockchain = { version = "39.0.0", default-features = false }
-sp-consensus-aura = { version = "0.42.0", default-features = false }
+sp-consensus = { version = "0.42.0", default-features = false }
+sp-consensus-pow = { version = "0.42.0", default-features = false }
 sp-core = { version = "36.1.0", default-features = false }
 sp-genesis-builder = { version = "0.17.0", default-features = false }
 sp-inherents = { version = "36.0.0", default-features = false }
@@ -48,29 +64,31 @@ sp-io = { version = "40.0.1", default-features = false }
 sp-keyring = { version = "41.0.0", default-features = false }
 sp-runtime = { version = "41.1.0", default-features = false }
 sp-timestamp = { version = "36.0.0", default-features = false }
-substrate-frame-rpc-system = { version = "43.0.0", default-features = false }
-substrate-build-script-utils = { version = "11.0.0", default-features = false }
-codec = { version = "3.7.4", default-features = false, package = "parity-scale-codec" }
-frame-benchmarking = { version = "40.0.0", default-features = false }
-frame-executive = { version = "40.0.0", default-features = false }
-frame-support = { version = "40.1.0", default-features = false }
-frame-system-benchmarking = { version = "40.0.0", default-features = false }
-frame-system-rpc-runtime-api = { version = "36.0.0", default-features = false }
-frame-try-runtime = { version = "0.46.0", default-features = false }
-pallet-aura = { version = "39.0.0", default-features = false }
-pallet-balances = { version = "41.1.0", default-features = false }
-pallet-grandpa = { version = "40.0.0", default-features = false }
-pallet-sudo = { version = "40.0.0", default-features = false }
-pallet-timestamp = { version = "39.0.0", default-features = false }
-pallet-transaction-payment-rpc-runtime-api = { version = "40.0.0", default-features = false }
-scale-info = { version = "2.11.6", default-features = false }
-serde_json = { version = "1.0.132", default-features = false }
-sp-consensus-grandpa = { version = "23.1.0", default-features = false }
 sp-offchain = { version = "36.0.0", default-features = false }
 sp-session = { version = "38.1.0", default-features = false }
 sp-storage = { version = "22.0.0", default-features = false }
 sp-transaction-pool = { version = "36.0.0", default-features = false }
 sp-version = { version = "39.0.0", default-features = false }
+
+# FRAME Pallets (stable2503)
+frame-benchmarking = { version = "40.0.0", default-features = false }
+frame-executive = { version = "40.0.0", default-features = false }
+frame-metadata-hash-extension = { version = "0.8.0", default-features = false }
+frame-support = { version = "40.1.0", default-features = false }
+frame-system = { version = "40.1.0", default-features = false }
+frame-system-benchmarking = { version = "40.0.0", default-features = false }
+frame-system-rpc-runtime-api = { version = "36.0.0", default-features = false }
+frame-try-runtime = { version = "0.46.0", default-features = false }
+pallet-balances = { version = "41.1.0", default-features = false }
+pallet-sudo = { version = "40.0.0", default-features = false }
+pallet-timestamp = { version = "39.0.0", default-features = false }
+pallet-transaction-payment = { version = "40.0.0", default-features = false }
+pallet-transaction-payment-rpc = { version = "43.0.0", default-features = false }
+pallet-transaction-payment-rpc-runtime-api = { version = "40.0.0", default-features = false }
+
+# Build utilities
+substrate-frame-rpc-system = { version = "43.0.0", default-features = false }
+substrate-build-script-utils = { version = "11.0.0", default-features = false }
 substrate-wasm-builder = { version = "26.0.1", default-features = false }
 
 [profile.release]
@@ -81,4 +99,3 @@ panic = "unwind"
 codegen-units = 1
 inherits = "release"
 lto = true
-

@@ -1,65 +1,188 @@
-name: Release
-
-permissions:
-  contents: write
-  packages: write
+name: Build and Release
 
 on:
-  release:
-    types: [released]
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  release-docker:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      # We've run into out-of-disk error when compiling Polkadot in the next step, so we free up some space this way.
-      - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # 1.3.1
-        with:
-          android: true # This alone is a 12 GB save.
-          # We disable the rest because it caused some problems. (they're enabled by default)
-          # The Android removal is enough.
-          dotnet: false
-          haskell: false
-          large-packages: false
-          swap-storage: false
-
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          push: true
-          tags: ghcr.io/${{ github.repository }}:${{ github.ref_name }}
-  
-  release-binaries:
-    runs-on: ubuntu-latest
+  build-linux-x64:
+    name: Build Linux x86_64
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-
-      - name: Rust compilation prerequisites
+      
+      - name: Install dependencies
         run: |
-          sudo apt update
-          sudo apt install -y \
-            protobuf-compiler
-          rustup target add wasm32-unknown-unknown
-          rustup component add rust-src
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler libclang-dev cmake
+          
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        
+      - name: Build
+        run: cargo build --release
+        
+      - name: Package
+        run: |
+          mkdir -p release
+          cp target/release/kod-node release/
+          cd release && tar -czvf kod-node-linux-x64.tar.gz kod-node
+          
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kod-node-linux-x64
+          path: release/kod-node-linux-x64.tar.gz
 
-      - name: Build the template
-        run: cargo build --locked --release
-        timeout-minutes: 90
+  build-macos-arm64:
+    name: Build macOS ARM64 (Apple Silicon)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: brew install protobuf cmake
+        
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        
+      - name: Build
+        run: cargo build --release
+        
+      - name: Package
+        run: |
+          mkdir -p release
+          cp target/release/kod-node release/
+          cd release && tar -czvf kod-node-macos-arm64.tar.gz kod-node
+          
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kod-node-macos-arm64
+          path: release/kod-node-macos-arm64.tar.gz
 
-      - name: Upload the binaries
-        uses: softprops/action-gh-release@v2
+  build-macos-x64:
+    name: Build macOS x86_64 (Intel)
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: brew install protobuf cmake
+        
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        
+      - name: Build
+        run: cargo build --release
+        
+      - name: Package
+        run: |
+          mkdir -p release
+          cp target/release/kod-node release/
+          cd release && tar -czvf kod-node-macos-x64.tar.gz kod-node
+          
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kod-node-macos-x64
+          path: release/kod-node-macos-x64.tar.gz
+
+  build-windows:
+    name: Build Windows x86_64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install protobuf
+        run: choco install protoc -y
+        
+      - name: Install LLVM
+        run: choco install llvm -y
+        
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        
+      - name: Build
+        run: cargo build --release
+        env:
+          LIBCLANG_PATH: "C:\\Program Files\\LLVM\\bin"
+          
+      - name: Package
+        run: |
+          mkdir release
+          copy target\release\kod-node.exe release\
+          Compress-Archive -Path release\kod-node.exe -DestinationPath release\kod-node-windows-x64.zip
+          
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kod-node-windows-x64
+          path: release/kod-node-windows-x64.zip
+
+  release:
+    name: Create Release
+    needs: [build-linux-x64, build-macos-arm64, build-macos-x64, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
         with:
           files: |
-            target/release/solochain-template-node
-            target/release/wbuild/solochain-template-runtime/solochain_template_runtime.compact.compressed.wasm
+            artifacts/kod-node-linux-x64/kod-node-linux-x64.tar.gz
+            artifacts/kod-node-macos-arm64/kod-node-macos-arm64.tar.gz
+            artifacts/kod-node-macos-x64/kod-node-macos-x64.tar.gz
+            artifacts/kod-node-windows-x64/kod-node-windows-x64.zip
+          body: |
+            ## KOD Chain Node Release
+            
+            ### Download for your platform:
+            - **Linux x86_64**: `kod-node-linux-x64.tar.gz`
+            - **macOS Apple Silicon (M1/M2/M3/M4)**: `kod-node-macos-arm64.tar.gz`
+            - **macOS Intel**: `kod-node-macos-x64.tar.gz`
+            - **Windows**: `kod-node-windows-x64.zip`
+            
+            ### Quick Start
+            ```bash
+            # Extract
+            tar -xzf kod-node-*.tar.gz  # Linux/macOS
+            # or unzip for Windows
+            
+            # Start mining
+            ./kod-node --mine --reward-address YOUR_SS58_ADDRESS
+            ```
+            
+            See [kod.services](https://kod.services) for full documentation.

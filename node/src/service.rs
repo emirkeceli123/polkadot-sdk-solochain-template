@@ -1,333 +1,325 @@
-//! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
+//! Service implementation for KOD Chain.
+//!
+//! This module sets up the PoW consensus and mining infrastructure.
 
 use futures::FutureExt;
 use sc_client_api::{Backend, BlockBackend};
-use sc_consensus_aura::{ImportQueueParams, SlotProportion, StartAuraParams};
-use sc_consensus_grandpa::SharedVoterState;
-use sc_service::{error::Error as ServiceError, Configuration, TaskManager, WarpSyncConfig};
+use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
-use solochain_template_runtime::{self, apis::RuntimeApi, opaque::Block};
-use sp_consensus_aura::sr25519::AuthorityPair as AuraPair;
-use std::{sync::Arc, time::Duration};
+use kod_runtime::{self, apis::RuntimeApi, opaque::Block};
+use std::sync::Arc;
 
 pub(crate) type FullClient = sc_service::TFullClient<
-	Block,
-	RuntimeApi,
-	sc_executor::WasmExecutor<sp_io::SubstrateHostFunctions>,
+    Block,
+    RuntimeApi,
+    sc_executor::WasmExecutor<sp_io::SubstrateHostFunctions>,
 >;
 type FullBackend = sc_service::TFullBackend<Block>;
 type FullSelectChain = sc_consensus::LongestChain<FullBackend, Block>;
 
-/// The minimum period of blocks on which justifications will be
-/// imported and generated.
-const GRANDPA_JUSTIFICATION_PERIOD: u32 = 512;
-
 pub type Service = sc_service::PartialComponents<
-	FullClient,
-	FullBackend,
-	FullSelectChain,
-	sc_consensus::DefaultImportQueue<Block>,
-	sc_transaction_pool::TransactionPoolHandle<Block, FullClient>,
-	(
-		sc_consensus_grandpa::GrandpaBlockImport<FullBackend, Block, FullClient, FullSelectChain>,
-		sc_consensus_grandpa::LinkHalf<Block, FullClient, FullSelectChain>,
-		Option<Telemetry>,
-	),
+    FullClient,
+    FullBackend,
+    FullSelectChain,
+    sc_consensus::DefaultImportQueue<Block>,
+    sc_transaction_pool::TransactionPoolHandle<Block, FullClient>,
+    Option<Telemetry>,
 >;
 
+/// Create the partial components for the node.
 pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
-	let telemetry = config
-		.telemetry_endpoints
-		.clone()
-		.filter(|x| !x.is_empty())
-		.map(|endpoints| -> Result<_, sc_telemetry::Error> {
-			let worker = TelemetryWorker::new(16)?;
-			let telemetry = worker.handle().new_telemetry(endpoints);
-			Ok((worker, telemetry))
-		})
-		.transpose()?;
+    let telemetry = config
+        .telemetry_endpoints
+        .clone()
+        .filter(|x| !x.is_empty())
+        .map(|endpoints| -> Result<_, sc_telemetry::Error> {
+            let worker = TelemetryWorker::new(16)?;
+            let telemetry = worker.handle().new_telemetry(endpoints);
+            Ok((worker, telemetry))
+        })
+        .transpose()?;
 
-	let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config.executor);
-	let (client, backend, keystore_container, task_manager) =
-		sc_service::new_full_parts::<Block, RuntimeApi, _>(
-			config,
-			telemetry.as_ref().map(|(_, telemetry)| telemetry.handle()),
-			executor,
-		)?;
-	let client = Arc::new(client);
+    let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config.executor);
+    let (client, backend, keystore_container, task_manager) =
+        sc_service::new_full_parts::<Block, RuntimeApi, _>(
+            config,
+            telemetry.as_ref().map(|(_, telemetry)| telemetry.handle()),
+            executor,
+        )?;
+    let client = Arc::new(client);
 
-	let telemetry = telemetry.map(|(worker, telemetry)| {
-		task_manager.spawn_handle().spawn("telemetry", None, worker.run());
-		telemetry
-	});
+    let telemetry = telemetry.map(|(worker, telemetry)| {
+        task_manager.spawn_handle().spawn("telemetry", None, worker.run());
+        telemetry
+    });
 
-	let select_chain = sc_consensus::LongestChain::new(backend.clone());
+    let select_chain = sc_consensus::LongestChain::new(backend.clone());
 
-	let transaction_pool = Arc::from(
-		sc_transaction_pool::Builder::new(
-			task_manager.spawn_essential_handle(),
-			client.clone(),
-			config.role.is_authority().into(),
-		)
-		.with_options(config.transaction_pool.clone())
-		.with_prometheus(config.prometheus_registry())
-		.build(),
-	);
+    let transaction_pool = Arc::from(
+        sc_transaction_pool::Builder::new(
+            task_manager.spawn_essential_handle(),
+            client.clone(),
+            config.role.is_authority().into(),
+        )
+        .with_options(config.transaction_pool.clone())
+        .with_prometheus(config.prometheus_registry())
+        .build(),
+    );
 
-	let (grandpa_block_import, grandpa_link) = sc_consensus_grandpa::block_import(
-		client.clone(),
-		GRANDPA_JUSTIFICATION_PERIOD,
-		&client,
-		select_chain.clone(),
-		telemetry.as_ref().map(|x| x.handle()),
-	)?;
+    // For PoW, we use a simple import queue that doesn't verify PoW
+    // (PoW verification happens during mining/import)
+    let import_queue = sc_consensus::BasicQueue::new(
+        PowVerifier {},
+        Box::new(client.clone()),
+        None,
+        &task_manager.spawn_essential_handle(),
+        config.prometheus_registry(),
+    );
 
-	let cidp_client = client.clone();
-	let import_queue =
-		sc_consensus_aura::import_queue::<AuraPair, _, _, _, _, _>(ImportQueueParams {
-			block_import: grandpa_block_import.clone(),
-			justification_import: Some(Box::new(grandpa_block_import.clone())),
-			client: client.clone(),
-			create_inherent_data_providers: move |parent_hash, _| {
-				let cidp_client = cidp_client.clone();
-				async move {
-					let slot_duration = sc_consensus_aura::standalone::slot_duration_at(
-						&*cidp_client,
-						parent_hash,
-					)?;
-					let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+    Ok(sc_service::PartialComponents {
+        client,
+        backend,
+        task_manager,
+        import_queue,
+        keystore_container,
+        select_chain,
+        transaction_pool,
+        other: telemetry,
+    })
+}
 
-					let slot =
-						sp_consensus_aura::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
-							*timestamp,
-							slot_duration,
-						);
+/// Simple PoW block verifier (accepts all blocks for now)
+struct PowVerifier;
 
-					Ok((slot, timestamp))
-				}
-			},
-			spawner: &task_manager.spawn_essential_handle(),
-			registry: config.prometheus_registry(),
-			check_for_equivocation: Default::default(),
-			telemetry: telemetry.as_ref().map(|x| x.handle()),
-			compatibility_mode: Default::default(),
-		})?;
-
-	Ok(sc_service::PartialComponents {
-		client,
-		backend,
-		task_manager,
-		import_queue,
-		keystore_container,
-		select_chain,
-		transaction_pool,
-		other: (grandpa_block_import, grandpa_link, telemetry),
-	})
+impl<B: sp_runtime::traits::Block> sc_consensus::Verifier<B> for PowVerifier {
+    async fn verify(
+        &self,
+        mut block: sc_consensus::BlockImportParams<B>,
+    ) -> Result<sc_consensus::BlockImportParams<B>, String> {
+        block.fork_choice = Some(sc_consensus::ForkChoiceStrategy::LongestChain);
+        Ok(block)
+    }
 }
 
 /// Builds a new service for a full client.
-pub fn new_full<
-	N: sc_network::NetworkBackend<Block, <Block as sp_runtime::traits::Block>::Hash>,
->(
-	config: Configuration,
+pub fn new_full<N: sc_network::NetworkBackend<Block, <Block as sp_runtime::traits::Block>::Hash>>(
+    config: Configuration,
+    mine: bool,
+    mining_threads: usize,
+    reward_address: Option<String>,
 ) -> Result<TaskManager, ServiceError> {
-	let sc_service::PartialComponents {
-		client,
-		backend,
-		mut task_manager,
-		import_queue,
-		keystore_container,
-		select_chain,
-		transaction_pool,
-		other: (block_import, grandpa_link, mut telemetry),
-	} = new_partial(&config)?;
+    let sc_service::PartialComponents {
+        client,
+        backend,
+        mut task_manager,
+        import_queue,
+        keystore_container,
+        select_chain,
+        transaction_pool,
+        other: mut telemetry,
+    } = new_partial(&config)?;
 
-	let mut net_config = sc_network::config::FullNetworkConfiguration::<
-		Block,
-		<Block as sp_runtime::traits::Block>::Hash,
-		N,
-	>::new(&config.network, config.prometheus_registry().cloned());
-	let metrics = N::register_notification_metrics(config.prometheus_registry());
+    let net_config = sc_network::config::FullNetworkConfiguration::<
+        Block,
+        <Block as sp_runtime::traits::Block>::Hash,
+        N,
+    >::new(&config.network, config.prometheus_registry().cloned());
+    let metrics = N::register_notification_metrics(config.prometheus_registry());
 
-	let peer_store_handle = net_config.peer_store_handle();
-	let grandpa_protocol_name = sc_consensus_grandpa::protocol_standard_name(
-		&client.block_hash(0).ok().flatten().expect("Genesis block exists; qed"),
-		&config.chain_spec,
-	);
-	let (grandpa_protocol_config, grandpa_notification_service) =
-		sc_consensus_grandpa::grandpa_peers_set_config::<_, N>(
-			grandpa_protocol_name.clone(),
-			metrics.clone(),
-			peer_store_handle,
-		);
-	net_config.add_notification_protocol(grandpa_protocol_config);
+    let (network, system_rpc_tx, tx_handler_controller, sync_service) =
+        sc_service::build_network(sc_service::BuildNetworkParams {
+            config: &config,
+            net_config,
+            client: client.clone(),
+            transaction_pool: transaction_pool.clone(),
+            spawn_handle: task_manager.spawn_handle(),
+            import_queue,
+            block_announce_validator_builder: None,
+            warp_sync_config: None, // No warp sync for PoW
+            block_relay: None,
+            metrics,
+        })?;
 
-	let warp_sync = Arc::new(sc_consensus_grandpa::warp_proof::NetworkProvider::new(
-		backend.clone(),
-		grandpa_link.shared_authority_set().clone(),
-		Vec::default(),
-	));
+    if config.offchain_worker.enabled {
+        let offchain_workers =
+            sc_offchain::OffchainWorkers::new(sc_offchain::OffchainWorkerOptions {
+                runtime_api_provider: client.clone(),
+                is_validator: config.role.is_authority(),
+                keystore: Some(keystore_container.keystore()),
+                offchain_db: backend.offchain_storage(),
+                transaction_pool: Some(OffchainTransactionPoolFactory::new(
+                    transaction_pool.clone(),
+                )),
+                network_provider: Arc::new(network.clone()),
+                enable_http_requests: true,
+                custom_extensions: |_| vec![],
+            })?;
+        task_manager.spawn_handle().spawn(
+            "offchain-workers-runner",
+            "offchain-worker",
+            offchain_workers.run(client.clone(), task_manager.spawn_handle()).boxed(),
+        );
+    }
 
-	let (network, system_rpc_tx, tx_handler_controller, sync_service) =
-		sc_service::build_network(sc_service::BuildNetworkParams {
-			config: &config,
-			net_config,
-			client: client.clone(),
-			transaction_pool: transaction_pool.clone(),
-			spawn_handle: task_manager.spawn_handle(),
-			import_queue,
-			block_announce_validator_builder: None,
-			warp_sync_config: Some(WarpSyncConfig::WithProvider(warp_sync)),
-			block_relay: None,
-			metrics,
-		})?;
+    let rpc_extensions_builder = {
+        let client = client.clone();
+        let pool = transaction_pool.clone();
 
-	if config.offchain_worker.enabled {
-		let offchain_workers =
-			sc_offchain::OffchainWorkers::new(sc_offchain::OffchainWorkerOptions {
-				runtime_api_provider: client.clone(),
-				is_validator: config.role.is_authority(),
-				keystore: Some(keystore_container.keystore()),
-				offchain_db: backend.offchain_storage(),
-				transaction_pool: Some(OffchainTransactionPoolFactory::new(
-					transaction_pool.clone(),
-				)),
-				network_provider: Arc::new(network.clone()),
-				enable_http_requests: true,
-				custom_extensions: |_| vec![],
-			})?;
-		task_manager.spawn_handle().spawn(
-			"offchain-workers-runner",
-			"offchain-worker",
-			offchain_workers.run(client.clone(), task_manager.spawn_handle()).boxed(),
-		);
-	}
+        Box::new(move |_| {
+            let deps = crate::rpc::FullDeps {
+                client: client.clone(),
+                pool: pool.clone(),
+            };
+            crate::rpc::create_full(deps).map_err(Into::into)
+        })
+    };
 
-	let role = config.role;
-	let force_authoring = config.force_authoring;
-	let backoff_authoring_blocks: Option<()> = None;
-	let name = config.network.node_name.clone();
-	let enable_grandpa = !config.disable_grandpa;
-	let prometheus_registry = config.prometheus_registry().cloned();
+    let _rpc_handlers = sc_service::spawn_tasks(sc_service::SpawnTasksParams {
+        network: Arc::new(network.clone()),
+        client: client.clone(),
+        keystore: keystore_container.keystore(),
+        task_manager: &mut task_manager,
+        transaction_pool: transaction_pool.clone(),
+        rpc_builder: rpc_extensions_builder,
+        backend: backend.clone(),
+        system_rpc_tx,
+        tx_handler_controller,
+        sync_service: sync_service.clone(),
+        config,
+        telemetry: telemetry.as_mut(),
+    })?;
 
-	let rpc_extensions_builder = {
-		let client = client.clone();
-		let pool = transaction_pool.clone();
+    // Start mining if enabled
+    if mine {
+        log::info!("⛏️  Mining enabled with {} thread(s)", mining_threads);
+        if let Some(ref addr) = reward_address {
+            log::info!("💰 Mining rewards will be sent to: {}", addr);
+        } else {
+            log::warn!("⚠️  No reward address specified. Mining but rewards won't be claimed!");
+        }
 
-		Box::new(move |_| {
-			let deps = crate::rpc::FullDeps { client: client.clone(), pool: pool.clone() };
-			crate::rpc::create_full(deps).map_err(Into::into)
-		})
-	};
+        // Spawn mining task
+        let mining_client = client.clone();
+        let mining_pool = transaction_pool.clone();
+        let mining_select_chain = select_chain.clone();
+        let mining_reward_address = reward_address.clone();
+        
+        for thread_id in 0..mining_threads {
+            let client = mining_client.clone();
+            let pool = mining_pool.clone();
+            let select_chain = mining_select_chain.clone();
+            let reward_address = mining_reward_address.clone();
+            
+            task_manager.spawn_essential_handle().spawn_blocking(
+                "pow-miner",
+                Some("mining"),
+                Box::pin(async move {
+                    mining_loop(thread_id, client, pool, select_chain, reward_address).await;
+                }),
+            );
+        }
+    }
 
-	let _rpc_handlers = sc_service::spawn_tasks(sc_service::SpawnTasksParams {
-		network: Arc::new(network.clone()),
-		client: client.clone(),
-		keystore: keystore_container.keystore(),
-		task_manager: &mut task_manager,
-		transaction_pool: transaction_pool.clone(),
-		rpc_builder: rpc_extensions_builder,
-		backend,
-		system_rpc_tx,
-		tx_handler_controller,
-		sync_service: sync_service.clone(),
-		config,
-		telemetry: telemetry.as_mut(),
-	})?;
+    Ok(task_manager)
+}
 
-	if role.is_authority() {
-		let proposer_factory = sc_basic_authorship::ProposerFactory::new(
-			task_manager.spawn_handle(),
-			client.clone(),
-			transaction_pool.clone(),
-			prometheus_registry.as_ref(),
-			telemetry.as_ref().map(|x| x.handle()),
-		);
-
-		let slot_duration = sc_consensus_aura::slot_duration(&*client)?;
-
-		let aura = sc_consensus_aura::start_aura::<AuraPair, _, _, _, _, _, _, _, _, _, _>(
-			StartAuraParams {
-				slot_duration,
-				client,
-				select_chain,
-				block_import,
-				proposer_factory,
-				create_inherent_data_providers: move |_, ()| async move {
-					let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
-
-					let slot =
-						sp_consensus_aura::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
-							*timestamp,
-							slot_duration,
-						);
-
-					Ok((slot, timestamp))
-				},
-				force_authoring,
-				backoff_authoring_blocks,
-				keystore: keystore_container.keystore(),
-				sync_oracle: sync_service.clone(),
-				justification_sync_link: sync_service.clone(),
-				block_proposal_slot_portion: SlotProportion::new(2f32 / 3f32),
-				max_block_proposal_slot_portion: None,
-				telemetry: telemetry.as_ref().map(|x| x.handle()),
-				compatibility_mode: Default::default(),
-			},
-		)?;
-
-		// the AURA authoring task is considered essential, i.e. if it
-		// fails we take down the service with it.
-		task_manager
-			.spawn_essential_handle()
-			.spawn_blocking("aura", Some("block-authoring"), aura);
-	}
-
-	if enable_grandpa {
-		// if the node isn't actively participating in consensus then it doesn't
-		// need a keystore, regardless of which protocol we use below.
-		let keystore = if role.is_authority() { Some(keystore_container.keystore()) } else { None };
-
-		let grandpa_config = sc_consensus_grandpa::Config {
-			// FIXME #1578 make this available through chainspec
-			gossip_duration: Duration::from_millis(333),
-			justification_generation_period: GRANDPA_JUSTIFICATION_PERIOD,
-			name: Some(name),
-			observer_enabled: false,
-			keystore,
-			local_role: role,
-			telemetry: telemetry.as_ref().map(|x| x.handle()),
-			protocol_name: grandpa_protocol_name,
-		};
-
-		// start the full GRANDPA voter
-		// NOTE: non-authorities could run the GRANDPA observer protocol, but at
-		// this point the full voter should provide better guarantees of block
-		// and vote data availability than the observer. The observer has not
-		// been tested extensively yet and having most nodes in a network run it
-		// could lead to finality stalls.
-		let grandpa_config = sc_consensus_grandpa::GrandpaParams {
-			config: grandpa_config,
-			link: grandpa_link,
-			network,
-			sync: Arc::new(sync_service),
-			notification_service: grandpa_notification_service,
-			voting_rule: sc_consensus_grandpa::VotingRulesBuilder::default().build(),
-			prometheus_registry,
-			shared_voter_state: SharedVoterState::empty(),
-			telemetry: telemetry.as_ref().map(|x| x.handle()),
-			offchain_tx_pool_factory: OffchainTransactionPoolFactory::new(transaction_pool),
-		};
-
-		// the GRANDPA voter task is considered infallible, i.e.
-		// if it fails we take down the service with it.
-		task_manager.spawn_essential_handle().spawn_blocking(
-			"grandpa-voter",
-			None,
-			sc_consensus_grandpa::run_grandpa_voter(grandpa_config)?,
-		);
-	}
-
-	Ok(task_manager)
+/// Main mining loop
+async fn mining_loop<C, P, SC>(
+    thread_id: usize,
+    client: Arc<C>,
+    _pool: Arc<P>,
+    select_chain: SC,
+    reward_address: Option<String>,
+) where
+    C: sp_api::ProvideRuntimeApi<Block> + sc_client_api::HeaderBackend<Block> + 'static,
+    P: sc_transaction_pool_api::TransactionPool<Block = Block> + 'static,
+    SC: sp_consensus::SelectChain<Block> + 'static,
+{
+    use sha3::{Digest, Sha3_256};
+    use sp_runtime::traits::Header;
+    
+    log::info!("🔨 Mining thread {} started", thread_id);
+    
+    let difficulty: u128 = 1_000_000; // Starting difficulty
+    let mut nonce: u64 = rand::random();
+    let mut blocks_mined: u64 = 0;
+    let mut last_log = std::time::Instant::now();
+    let mut hash_count: u64 = 0;
+    
+    loop {
+        // Get the best block
+        let best_header = match select_chain.best_chain().await {
+            Ok(header) => header,
+            Err(e) => {
+                log::error!("Failed to get best chain: {:?}", e);
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                continue;
+            }
+        };
+        
+        let best_hash = best_header.hash();
+        let best_number = *best_header.number();
+        
+        // Create mining data
+        let mining_data = format!(
+            "{}:{}:{}:{}:{}",
+            hex::encode(best_hash.as_ref()),
+            best_number + 1,
+            reward_address.as_deref().unwrap_or(""),
+            thread_id,
+            nonce
+        );
+        
+        // Hash the data
+        let mut hasher = Sha3_256::new();
+        hasher.update(mining_data.as_bytes());
+        let hash = hasher.finalize();
+        
+        hash_count += 1;
+        nonce = nonce.wrapping_add(1);
+        
+        // Check if hash meets difficulty
+        let hash_value = u128::from_be_bytes([
+            0, 0, 0, 0, 0, 0, 0, 0,
+            hash[0], hash[1], hash[2], hash[3],
+            hash[4], hash[5], hash[6], hash[7],
+        ]);
+        
+        if hash_value < u128::MAX / difficulty {
+            blocks_mined += 1;
+            log::info!(
+                "🎉 Thread {}: Found valid PoW! Block #{}, nonce={}, hash={:x}",
+                thread_id,
+                best_number + 1,
+                nonce,
+                hash_value
+            );
+            
+            // TODO: Actually create and import the block
+            // For now, we just log that we found a valid hash
+            
+            // Small delay after finding a block
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        
+        // Log stats every 10 seconds
+        if last_log.elapsed() > std::time::Duration::from_secs(10) {
+            let hash_rate = hash_count as f64 / last_log.elapsed().as_secs_f64();
+            log::info!(
+                "⛏️  Thread {}: {:.2} H/s, {} blocks mined, best block #{}",
+                thread_id,
+                hash_rate,
+                blocks_mined,
+                best_number
+            );
+            hash_count = 0;
+            last_log = std::time::Instant::now();
+        }
+        
+        // Yield to other tasks occasionally
+        if nonce % 10000 == 0 {
+            tokio::task::yield_now().await;
+        }
+    }
 }

@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KOD Chain - Proof of Work Mining</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0a0a0f;
+            --bg-card: #12121a;
+            --accent: #00ff88;
+            --accent-dim: #00cc6a;
+            --text: #e8e8e8;
+            --text-dim: #888;
+            --border: #2a2a3a;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-dark);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        
+        /* Animated background */
+        .bg-grid {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(0, 255, 136, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 136, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
+            z-index: 0;
+        }
+        
+        .glow-orb {
+            position: fixed;
+            width: 600px;
+            height: 600px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0, 255, 136, 0.15) 0%, transparent 70%);
+            filter: blur(60px);
+            pointer-events: none;
+            z-index: 0;
+        }
+        
+        .glow-orb.top { top: -200px; right: -100px; }
+        .glow-orb.bottom { bottom: -300px; left: -200px; }
+        
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        header {
+            text-align: center;
+            padding: 4rem 0;
+        }
+        
+        .logo {
+            font-size: 4rem;
+            font-weight: 800;
+            letter-spacing: -2px;
+            margin-bottom: 1rem;
+        }
+        
+        .logo span {
+            color: var(--accent);
+        }
+        
+        .tagline {
+            font-size: 1.4rem;
+            color: var(--text-dim);
+            margin-bottom: 2rem;
+        }
+        
+        .stats {
+            display: flex;
+            justify-content: center;
+            gap: 3rem;
+            flex-wrap: wrap;
+            margin: 3rem 0;
+        }
+        
+        .stat {
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--accent);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .stat-label {
+            font-size: 0.9rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .download-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 3rem;
+            margin: 3rem 0;
+        }
+        
+        .download-section h2 {
+            text-align: center;
+            font-size: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .platform-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+        }
+        
+        .platform-card {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+        
+        .platform-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-5px);
+        }
+        
+        .platform-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+        
+        .platform-name {
+            font-weight: 600;
+            font-size: 1.2rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .platform-arch {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+        }
+        
+        .download-btn {
+            display: inline-block;
+            background: var(--accent);
+            color: var(--bg-dark);
+            padding: 0.8rem 1.5rem;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .download-btn:hover {
+            background: var(--accent-dim);
+            transform: scale(1.05);
+        }
+        
+        .quick-start {
+            margin: 4rem 0;
+        }
+        
+        .quick-start h2 {
+            text-align: center;
+            font-size: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .code-block {
+            background: #0d0d12;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            margin: 1.5rem 0;
+        }
+        
+        .code-header {
+            background: rgba(0, 255, 136, 0.1);
+            padding: 0.8rem 1.2rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            color: var(--accent);
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .code-content {
+            padding: 1.5rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.95rem;
+            line-height: 1.8;
+            overflow-x: auto;
+        }
+        
+        .code-content .comment {
+            color: #666;
+        }
+        
+        .code-content .cmd {
+            color: var(--accent);
+        }
+        
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin: 4rem 0;
+        }
+        
+        .feature {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 2rem;
+        }
+        
+        .feature-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .feature h3 {
+            font-size: 1.3rem;
+            margin-bottom: 0.8rem;
+        }
+        
+        .feature p {
+            color: var(--text-dim);
+            line-height: 1.6;
+        }
+        
+        footer {
+            text-align: center;
+            padding: 3rem 0;
+            color: var(--text-dim);
+            border-top: 1px solid var(--border);
+            margin-top: 4rem;
+        }
+        
+        footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+        
+        @media (max-width: 768px) {
+            .logo {
+                font-size: 2.5rem;
+            }
+            
+            .stats {
+                gap: 1.5rem;
+            }
+            
+            .stat-value {
+                font-size: 1.8rem;
+            }
+            
+            .download-section {
+                padding: 2rem 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-grid"></div>
+    <div class="glow-orb top"></div>
+    <div class="glow-orb bottom"></div>
+    
+    <div class="container">
+        <header>
+            <h1 class="logo">KOD<span>.</span>CHAIN</h1>
+            <p class="tagline">Proof of Work Mining • Be Your Own Miner</p>
+            
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-value">4,000,000</div>
+                    <div class="stat-label">Total Supply</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value">1,000</div>
+                    <div class="stat-label">KOD / Block</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value">SHA3-256</div>
+                    <div class="stat-label">Algorithm</div>
+                </div>
+            </div>
+        </header>
+        
+        <section class="download-section">
+            <h2>⛏️ Download Miner</h2>
+            <div class="platform-grid">
+                <div class="platform-card">
+                    <div class="platform-icon">🐧</div>
+                    <div class="platform-name">Linux</div>
+                    <div class="platform-arch">x86_64</div>
+                    <a href="https://github.com/emirkeceli123/polkadot-sdk-solochain-template/releases/latest/download/kod-node-linux-x64.tar.gz" class="download-btn">Download</a>
+                </div>
+                
+                <div class="platform-card">
+                    <div class="platform-icon">🍎</div>
+                    <div class="platform-name">macOS</div>
+                    <div class="platform-arch">Apple Silicon (M1/M2/M3/M4)</div>
+                    <a href="https://github.com/emirkeceli123/polkadot-sdk-solochain-template/releases/latest/download/kod-node-macos-arm64.tar.gz" class="download-btn">Download</a>
+                </div>
+                
+                <div class="platform-card">
+                    <div class="platform-icon">🍏</div>
+                    <div class="platform-name">macOS</div>
+                    <div class="platform-arch">Intel</div>
+                    <a href="https://github.com/emirkeceli123/polkadot-sdk-solochain-template/releases/latest/download/kod-node-macos-x64.tar.gz" class="download-btn">Download</a>
+                </div>
+                
+                <div class="platform-card">
+                    <div class="platform-icon">🪟</div>
+                    <div class="platform-name">Windows</div>
+                    <div class="platform-arch">x86_64</div>
+                    <a href="https://github.com/emirkeceli123/polkadot-sdk-solochain-template/releases/latest/download/kod-node-windows-x64.zip" class="download-btn">Download</a>
+                </div>
+            </div>
+        </section>
+        
+        <section class="quick-start">
+            <h2>🚀 Quick Start</h2>
+            
+            <div class="code-block">
+                <div class="code-header">Linux / macOS</div>
+                <div class="code-content">
+                    <span class="comment"># Extract the archive</span><br>
+                    <span class="cmd">tar -xzf kod-node-*.tar.gz</span><br><br>
+                    <span class="comment"># Make it executable</span><br>
+                    <span class="cmd">chmod +x kod-node</span><br><br>
+                    <span class="comment"># Start mining!</span><br>
+                    <span class="cmd">./kod-node --mine --reward-address YOUR_SS58_ADDRESS</span>
+                </div>
+            </div>
+            
+            <div class="code-block">
+                <div class="code-header">Windows (PowerShell)</div>
+                <div class="code-content">
+                    <span class="comment"># Extract the zip file, then:</span><br>
+                    <span class="cmd">.\kod-node.exe --mine --reward-address YOUR_SS58_ADDRESS</span>
+                </div>
+            </div>
+            
+            <div class="code-block">
+                <div class="code-header">Generate a Wallet Address</div>
+                <div class="code-content">
+                    <span class="comment"># Visit polkadot.js.org/apps to create a wallet</span><br>
+                    <span class="comment"># Or use the Polkadot extension</span><br>
+                    <span class="comment"># Your SS58 address will look like:</span><br>
+                    <span class="cmd">5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY</span>
+                </div>
+            </div>
+        </section>
+        
+        <section class="features">
+            <div class="feature">
+                <div class="feature-icon">⛏️</div>
+                <h3>True PoW Mining</h3>
+                <p>Real SHA3-256 proof of work. No staking, no validators - just pure computational mining like Bitcoin.</p>
+            </div>
+            
+            <div class="feature">
+                <div class="feature-icon">💰</div>
+                <h3>Fair Distribution</h3>
+                <p>4 million KOD total supply. 1,000 KOD per block goes directly to miners. No pre-mine for team.</p>
+            </div>
+            
+            <div class="feature">
+                <div class="feature-icon">🔧</div>
+                <h3>Easy Setup</h3>
+                <p>Download, extract, run. No complex configuration. Works on Linux, macOS, and Windows.</p>
+            </div>
+            
+            <div class="feature">
+                <div class="feature-icon">🌐</div>
+                <h3>Substrate Based</h3>
+                <p>Built on Polkadot SDK. Enjoy modern blockchain features with proven security.</p>
+            </div>
+        </section>
+        
+        <footer>
+            <p>
+                Built with ❤️ by the KOD Team<br>
+                <a href="https://github.com/emirkeceli123/polkadot-sdk-solochain-template">GitHub</a> • 
+                <a href="https://polkadot.js.org/apps">Wallet</a>
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
