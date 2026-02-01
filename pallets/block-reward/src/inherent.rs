@@ -2,17 +2,17 @@
 //! This runs on the node side to provide miner address to the runtime.
 
 use crate::{MinerInherentData, INHERENT_IDENTIFIER};
-use sp_inherents::{InherentData, InherentDataProvider};
+use sp_inherents::{InherentData, InherentDataProvider as InherentDataProviderTrait};
 
 /// Inherent data provider that provides the miner's reward address to the runtime.
-pub struct InherentDataProvider {
+pub struct BlockRewardInherentDataProvider {
     /// The SS58 address of the miner (as bytes)
     miner_address: Option<Vec<u8>>,
     /// Current block number
     block_number: u32,
 }
 
-impl InherentDataProvider {
+impl BlockRewardInherentDataProvider {
     /// Create a new inherent data provider.
     ///
     /// # Arguments
@@ -27,7 +27,7 @@ impl InherentDataProvider {
 }
 
 #[async_trait::async_trait]
-impl InherentDataProvider for InherentDataProvider {
+impl InherentDataProviderTrait for BlockRewardInherentDataProvider {
     async fn provide_inherent_data(
         &self,
         inherent_data: &mut InherentData,
@@ -48,4 +48,3 @@ impl InherentDataProvider for InherentDataProvider {
         None
     }
 }
-
