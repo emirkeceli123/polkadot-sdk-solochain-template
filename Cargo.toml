@@ -20,6 +20,7 @@ resolver = "2"
 kod-runtime = { path = "./runtime", default-features = false }
 pallet-template = { path = "./pallets/template", default-features = false }
 pallet-block-reward = { path = "./pallets/block-reward", default-features = false }
+pallet-trade = { path = "./pallets/trade", default-features = false }
 
 # CLI and utilities
 clap = { version = "4.5.13" }

@@ -141,3 +141,23 @@ impl pallet_template::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_template::weights::SubstrateWeight<Runtime>;
 }
+
+// ============================================================================
+// TRADE PALLET CONFIGURATION
+// ============================================================================
+
+parameter_types! {
+    /// Minimum bond for creating a listing: 10 KOD
+    pub const MinTradeBond: Balance = 10 * super::UNIT;
+    
+    /// Maximum listings per user (spam prevention)
+    pub const MaxListingsPerUser: u32 = 100;
+}
+
+/// Trade pallet configuration
+impl pallet_trade::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    type MinBond = MinTradeBond;
+    type MaxListingsPerUser = MaxListingsPerUser;
+}

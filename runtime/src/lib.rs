@@ -248,4 +248,7 @@ mod runtime {
 
     #[runtime::pallet_index(6)]
     pub type Template = pallet_template;
+
+    #[runtime::pallet_index(7)]
+    pub type Trade = pallet_trade;
 }
