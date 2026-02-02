@@ -7,7 +7,7 @@
 
 use crate::{AccountId, BalancesConfig, RuntimeGenesisConfig, SudoConfig};
 use alloc::{vec, vec::Vec};
-use frame_support::{build_struct_json_patch, traits::Get, PalletId};
+use frame_support::{build_struct_json_patch, PalletId};
 use serde_json::Value;
 use sp_genesis_builder::{self, PresetId};
 use sp_keyring::Sr25519Keyring;

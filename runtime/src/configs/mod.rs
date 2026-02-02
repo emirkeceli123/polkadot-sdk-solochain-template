@@ -22,7 +22,7 @@ use sp_version::RuntimeVersion;
 use super::{
     AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, PalletInfo, Runtime,
     RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask,
-    System, BLOCK_REWARD, EXISTENTIAL_DEPOSIT, SLOT_DURATION, UNIT, VERSION,
+    System, BLOCK_REWARD, EXISTENTIAL_DEPOSIT, SLOT_DURATION, VERSION,
 };
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
