@@ -3,12 +3,14 @@
 //! This module sets up the PoW consensus and mining infrastructure.
 
 use futures::FutureExt;
-use sc_client_api::Backend;
+use sc_client_api::{Backend, BlockImport};
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
 use kod_runtime::{self, apis::RuntimeApi, opaque::Block};
 use std::sync::Arc;
+use sp_runtime::traits::Block as BlockT;
+use sp_consensus::BlockOrigin;
 
 pub(crate) type FullClient = sc_service::TFullClient<
     Block,
@@ -201,53 +203,63 @@ pub fn new_full<N: sc_network::NetworkBackend<Block, <Block as sp_runtime::trait
             log::warn!("⚠️  No reward address specified. Mining but rewards won't be claimed!");
         }
 
+        // Create block proposer factory
+        let proposer_factory = sc_basic_authorship::ProposerFactory::new(
+            task_manager.spawn_handle(),
+            client.clone(),
+            transaction_pool.clone(),
+            None, // No prometheus for now
+            None, // No telemetry
+        );
+
         // Spawn mining task
         let mining_client = client.clone();
-        let mining_pool = transaction_pool.clone();
         let mining_select_chain = select_chain.clone();
         let mining_reward_address = reward_address.clone();
         
-        for thread_id in 0..mining_threads {
-            let client = mining_client.clone();
-            let pool = mining_pool.clone();
-            let select_chain = mining_select_chain.clone();
-            let reward_address = mining_reward_address.clone();
-            
-            task_manager.spawn_essential_handle().spawn_blocking(
-                "pow-miner",
-                Some("mining"),
-                Box::pin(async move {
-                    mining_loop(thread_id, client, pool, select_chain, reward_address).await;
-                }),
-            );
-        }
+        task_manager.spawn_essential_handle().spawn_blocking(
+            "pow-miner",
+            Some("mining"),
+            Box::pin(async move {
+                mining_loop(
+                    mining_client,
+                    proposer_factory,
+                    mining_select_chain,
+                    mining_reward_address,
+                ).await;
+            }),
+        );
     }
 
     Ok(task_manager)
 }
 
-/// Main mining loop
-async fn mining_loop<C, P, SC>(
-    thread_id: usize,
-    client: Arc<C>,
-    _pool: Arc<P>,
+/// Main mining loop - produces blocks with PoW
+async fn mining_loop<PF, SC>(
+    client: Arc<FullClient>,
+    mut proposer_factory: PF,
     select_chain: SC,
     reward_address: Option<String>,
 ) where
-    C: sp_api::ProvideRuntimeApi<Block> + sc_client_api::HeaderBackend<Block> + 'static,
-    P: sc_transaction_pool_api::TransactionPool<Block = Block> + 'static,
+    PF: sp_consensus::Environment<Block> + Send + 'static,
+    PF::Proposer: sp_consensus::Proposer<Block>,
     SC: sp_consensus::SelectChain<Block> + 'static,
 {
     use sha3::{Digest, Sha3_256};
     use sp_runtime::traits::Header;
+    use sc_client_api::BlockBackend;
     
-    log::info!("🔨 Mining thread {} started", thread_id);
+    log::info!("🔨 Mining loop started");
     
-    let difficulty: u128 = 1_000_000; // Starting difficulty
+    let difficulty: u128 = 100_000; // Lower difficulty for dev testing
     let mut nonce: u64 = rand::random();
     let mut blocks_mined: u64 = 0;
     let mut last_log = std::time::Instant::now();
     let mut hash_count: u64 = 0;
+    
+    // Block time target: 6 seconds
+    let block_time = std::time::Duration::from_secs(6);
+    let mut last_block_time = std::time::Instant::now();
     
     loop {
         // Get the best block
@@ -265,11 +277,10 @@ async fn mining_loop<C, P, SC>(
         
         // Create mining data
         let mining_data = format!(
-            "{}:{}:{}:{}:{}",
+            "{}:{}:{}:{}",
             hex::encode(best_hash.as_ref()),
             best_number + 1,
             reward_address.as_deref().unwrap_or(""),
-            thread_id,
             nonce
         );
         
@@ -288,29 +299,48 @@ async fn mining_loop<C, P, SC>(
             hash[4], hash[5], hash[6], hash[7],
         ]);
         
-        if hash_value < u128::MAX / difficulty {
-            blocks_mined += 1;
+        // Check if we should produce a block (difficulty met + enough time passed)
+        let time_ok = last_block_time.elapsed() >= block_time;
+        let pow_ok = hash_value < u128::MAX / difficulty;
+        
+        if pow_ok && time_ok {
             log::info!(
-                "🎉 Thread {}: Found valid PoW! Block #{}, nonce={}, hash={:x}",
-                thread_id,
+                "🎉 Found valid PoW! Creating block #{}, nonce={}, hash={:x}",
                 best_number + 1,
                 nonce,
                 hash_value
             );
             
-            // TODO: Actually create and import the block
-            // For now, we just log that we found a valid hash
+            // Create the block using proposer factory
+            match create_block_with_proposer(
+                &client,
+                &mut proposer_factory,
+                &best_header,
+            ).await {
+                Ok(()) => {
+                    blocks_mined += 1;
+                    last_block_time = std::time::Instant::now();
+                    log::info!(
+                        "✅ Block #{} successfully produced and imported!",
+                        best_number + 1
+                    );
+                }
+                Err(e) => {
+                    log::error!("❌ Failed to create block: {}", e);
+                    // Wait a bit before retrying
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                }
+            }
             
-            // Small delay after finding a block
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            // Reset nonce after block
+            nonce = rand::random();
         }
         
         // Log stats every 10 seconds
         if last_log.elapsed() > std::time::Duration::from_secs(10) {
             let hash_rate = hash_count as f64 / last_log.elapsed().as_secs_f64();
             log::info!(
-                "⛏️  Thread {}: {:.2} H/s, {} blocks mined, best block #{}",
-                thread_id,
+                "⛏️  Mining: {:.2} H/s, {} blocks produced, current best #{}",
                 hash_rate,
                 blocks_mined,
                 best_number
@@ -324,4 +354,64 @@ async fn mining_loop<C, P, SC>(
             tokio::task::yield_now().await;
         }
     }
+}
+
+/// Create a block using the proposer factory and import it
+async fn create_block_with_proposer<PF>(
+    client: &Arc<FullClient>,
+    proposer_factory: &mut PF,
+    parent: &<Block as BlockT>::Header,
+) -> Result<(), String>
+where
+    PF: sp_consensus::Environment<Block>,
+    PF::Proposer: sp_consensus::Proposer<Block>,
+{
+    use sp_consensus::{Environment, Proposer};
+    use sp_runtime::traits::Header;
+    use sp_runtime::generic::Digest;
+    
+    let parent_hash = parent.hash();
+    
+    // Create inherent data (timestamp)
+    let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+    let mut inherent_data = sp_inherents::InherentData::new();
+    inherent_data.put_data(sp_timestamp::INHERENT_IDENTIFIER, &timestamp.timestamp())
+        .map_err(|e| format!("Failed to add timestamp: {:?}", e))?;
+    
+    // Create proposer
+    let proposer = proposer_factory
+        .init(parent)
+        .await
+        .map_err(|e| format!("Failed to create proposer: {:?}", e))?;
+    
+    // Propose a block
+    let proposal = proposer
+        .propose(
+            inherent_data,
+            Digest::default(),
+            std::time::Duration::from_secs(10),
+            None,
+        )
+        .await
+        .map_err(|e| format!("Failed to propose block: {:?}", e))?;
+    
+    let block = proposal.block;
+    let header = block.header().clone();
+    let body = block.extrinsics().to_vec();
+    
+    log::info!("📦 Proposed block with {} extrinsics", body.len());
+    
+    // Import the block
+    let mut import_params = sc_consensus::BlockImportParams::new(BlockOrigin::Own, header);
+    import_params.body = Some(body);
+    import_params.fork_choice = Some(sc_consensus::ForkChoiceStrategy::LongestChain);
+    import_params.state_action = sc_consensus::StateAction::ApplyChanges(
+        sc_consensus::StorageChanges::Changes(proposal.storage_changes)
+    );
+    
+    client.import_block(import_params)
+        .await
+        .map_err(|e| format!("Failed to import block: {:?}", e))?;
+    
+    Ok(())
 }

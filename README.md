@@ -136,4 +136,3 @@ MIT-0 License - Use however you want!
 ---
 
 Built with ❤️ using [Polkadot SDK](https://github.com/paritytech/polkadot-sdk)
-# Build trigger
