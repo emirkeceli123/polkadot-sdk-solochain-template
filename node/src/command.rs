@@ -2,8 +2,9 @@
 
 use crate::{
     chain_spec,
-    cli::{Cli, Subcommand},
+    cli::{Cli, Subcommand, WalletSubcommand},
     service,
+    wallet,
 };
 use sc_cli::SubstrateCli;
 use sc_service::PartialComponents;
@@ -122,11 +123,59 @@ pub fn run() -> sc_cli::Result<()> {
             let runner = cli.create_runner(cmd)?;
             runner.sync_run(|config| cmd.run::<Block>(&config))
         }
+        Some(Subcommand::Wallet(wallet_cmd)) => {
+            match wallet_cmd {
+                WalletSubcommand::Info => {
+                    wallet::print_wallet_info()
+                        .map_err(|e| sc_cli::Error::Application(e.into()))?;
+                    Ok(())
+                }
+                WalletSubcommand::New => {
+                    if wallet::wallet_exists() {
+                        println!("⚠️  WARNING: A wallet already exists!");
+                        println!("   Existing wallet will be OVERWRITTEN.");
+                        println!("   Press Ctrl+C to cancel, or wait 5 seconds to continue...");
+                        std::thread::sleep(std::time::Duration::from_secs(5));
+                    }
+                    match wallet::generate_wallet() {
+                        Ok(info) => {
+                            println!("✅ New wallet created!");
+                            println!("📍 Address: {}", info.address);
+                            println!("📁 Saved to: ~/.kod/wallet.json");
+                            println!("");
+                            println!("⚠️  IMPORTANT: Backup your wallet.json file!");
+                        }
+                        Err(e) => {
+                            println!("❌ Failed to create wallet: {}", e);
+                        }
+                    }
+                    Ok(())
+                }
+                WalletSubcommand::ExportSeed => {
+                    wallet::export_seed()
+                        .map_err(|e| sc_cli::Error::Application(e.into()))?;
+                    Ok(())
+                }
+            }
+        }
         None => {
             let runner = cli.create_runner(&cli.run)?;
             let mine = cli.mine;
             let mining_threads = cli.mining_threads;
-            let reward_address = cli.reward_address.clone();
+            
+            // Auto-generate wallet if mining is enabled but no address provided
+            let reward_address = if mine && cli.reward_address.is_none() {
+                match wallet::get_or_create_wallet() {
+                    Ok(addr) => Some(addr),
+                    Err(e) => {
+                        log::error!("Failed to create wallet: {}", e);
+                        log::warn!("Mining will continue but rewards will not be claimed.");
+                        None
+                    }
+                }
+            } else {
+                cli.reward_address.clone()
+            };
             
             runner.run_node_until_exit(|config| async move {
                 match config.network.network_backend.unwrap_or_default() {

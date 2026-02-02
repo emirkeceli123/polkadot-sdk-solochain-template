@@ -15,6 +15,7 @@ pub struct Cli {
     pub run: RunCmd,
 
     /// Enable mining mode. The node will mine blocks.
+    /// If no --reward-address is provided, a wallet will be auto-generated.
     #[arg(long)]
     pub mine: bool,
 
@@ -23,7 +24,7 @@ pub struct Cli {
     pub mining_threads: usize,
 
     /// SS58 address to receive mining rewards.
-    /// If not provided and mining is enabled, rewards will not be claimed.
+    /// If not provided, a wallet will be auto-generated and saved to ~/.kod/wallet.json
     #[arg(long)]
     pub reward_address: Option<String>,
 }
@@ -58,4 +59,21 @@ pub enum Subcommand {
 
     /// Db meta columns information.
     ChainInfo(sc_cli::ChainInfoCmd),
+
+    /// Wallet management commands
+    #[command(subcommand)]
+    Wallet(WalletSubcommand),
+}
+
+/// Wallet management subcommands
+#[derive(Debug, clap::Subcommand)]
+pub enum WalletSubcommand {
+    /// Show wallet information (address, creation date)
+    Info,
+    
+    /// Generate a new wallet (WARNING: overwrites existing!)
+    New,
+    
+    /// Export the seed phrase for backup
+    ExportSeed,
 }

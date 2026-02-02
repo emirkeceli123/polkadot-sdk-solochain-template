@@ -49,11 +49,8 @@ sp-genesis-builder = { workspace = true }
 substrate-frame-rpc-system = { workspace = true }
 pallet-transaction-payment-rpc = { workspace = true }
 
-# Benchmarking
-frame-benchmarking-cli = { workspace = true }
-frame-system = { workspace = true }
-pallet-transaction-payment = { workspace = true }
-frame-metadata-hash-extension = { workspace = true }
+# Note: frame-benchmarking-cli removed due to pallet-sudo std compilation issues
+# Add back when needed for benchmarking
 
 # Other
 clap = { workspace = true, features = ["derive"] }
@@ -70,6 +67,12 @@ rand = { workspace = true }
 directories = { workspace = true }
 async-trait = { workspace = true }
 tokio = { version = "1.37", features = ["time", "rt"] }
+
+# Wallet generation
+bip39 = "2.0"
+chrono = "0.4"
+dirs = "5.0"
+getrandom = "0.2"
 
 [build-dependencies]
 substrate-build-script-utils = { workspace = true }
