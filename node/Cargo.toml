@@ -43,6 +43,7 @@ sp-keyring = { workspace = true }
 sp-runtime = { workspace = true }
 sp-timestamp = { workspace = true }
 sp-transaction-pool = { workspace = true }
+sp-genesis-builder = { workspace = true }
 
 # FRAME RPC
 substrate-frame-rpc-system = { workspace = true }

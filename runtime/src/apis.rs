@@ -18,10 +18,12 @@ use sp_runtime::{
 };
 use sp_version::RuntimeVersion;
 
+use sp_core::crypto::KeyTypeId;
+
 // Local module imports
 use super::{
     AccountId, Balance, Block, Executive, InherentDataExt, Nonce, Runtime,
-    RuntimeCall, RuntimeGenesisConfig, System, TransactionPayment, VERSION,
+    RuntimeCall, RuntimeGenesisConfig, SessionKeys, System, TransactionPayment, VERSION,
 };
 
 impl_runtime_apis! {
@@ -96,6 +98,18 @@ impl_runtime_apis! {
     impl sp_offchain::OffchainWorkerApi<Block> for Runtime {
         fn offchain_worker(header: &<Block as BlockT>::Header) {
             Executive::offchain_worker(header)
+        }
+    }
+
+    impl sp_session::SessionKeys<Block> for Runtime {
+        fn generate_session_keys(_seed: Option<Vec<u8>>) -> Vec<u8> {
+            // No session keys for PoW
+            Vec::new()
+        }
+
+        fn decode_session_keys(_encoded: Vec<u8>) -> Option<Vec<(Vec<u8>, KeyTypeId)>> {
+            // No session keys for PoW
+            None
         }
     }
 

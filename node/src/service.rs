@@ -3,7 +3,7 @@
 //! This module sets up the PoW consensus and mining infrastructure.
 
 use futures::FutureExt;
-use sc_client_api::{Backend, BlockBackend};
+use sc_client_api::Backend;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
@@ -95,8 +95,9 @@ struct PowVerifier;
 impl<B: sp_runtime::traits::Block> sc_consensus::Verifier<B> for PowVerifier {
     async fn verify(
         &self,
-        mut block: sc_consensus::BlockImportParams<B>,
+        block: sc_consensus::BlockImportParams<B>,
     ) -> Result<sc_consensus::BlockImportParams<B>, String> {
+        let mut block = block;
         block.fork_choice = Some(sc_consensus::ForkChoiceStrategy::LongestChain);
         Ok(block)
     }

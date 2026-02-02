@@ -75,6 +75,16 @@ pub const DAYS: BlockNumber = HOURS * 24;
 pub const BLOCK_HASH_COUNT: BlockNumber = 2400;
 
 // ============================================================================
+// SESSION KEYS (Minimal for PoW - no actual keys needed)
+// ============================================================================
+
+use sp_runtime::impl_opaque_keys;
+
+impl_opaque_keys! {
+    pub struct SessionKeys {}
+}
+
+// ============================================================================
 // OPAQUE TYPES
 // ============================================================================
 

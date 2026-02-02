@@ -2,6 +2,7 @@
 
 use sc_service::ChainType;
 use kod_runtime::WASM_BINARY;
+use sp_genesis_builder;
 
 /// Specialized `ChainSpec` for KOD Chain.
 pub type ChainSpec = sc_service::GenericChainSpec;
