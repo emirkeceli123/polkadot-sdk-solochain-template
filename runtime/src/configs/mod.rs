@@ -22,7 +22,8 @@ use sp_version::RuntimeVersion;
 use super::{
     AccountId, Balance, Balances, Block, BlockNumber, Hash, Nonce, PalletInfo, Runtime,
     RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask,
-    System, BLOCK_REWARD, EXISTENTIAL_DEPOSIT, SLOT_DURATION, VERSION,
+    System, INITIAL_BLOCK_REWARD, HALVING_INTERVAL, KOD_ONLY_BLOCK, EXISTENTIAL_DEPOSIT, 
+    SLOT_DURATION, VERSION,
 };
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
@@ -31,7 +32,7 @@ parameter_types! {
     pub const BlockHashCount: BlockNumber = 2400;
     pub const Version: RuntimeVersion = VERSION;
 
-    /// We allow for 2 seconds of compute with a 60 second average block time.
+    /// We allow for 2 seconds of compute with a 30 second average block time.
     pub RuntimeBlockWeights: BlockWeights = BlockWeights::with_sensible_defaults(
         Weight::from_parts(2u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX),
         NORMAL_DISPATCH_RATIO,
@@ -113,8 +114,14 @@ impl pallet_sudo::Config for Runtime {
 // ============================================================================
 
 parameter_types! {
-    /// Block reward: 1000 KOD per block
-    pub const RewardAmount: Balance = BLOCK_REWARD;
+    /// Initial block reward: 250 KOD per block (halves every ~2 years)
+    pub const RewardAmount: Balance = INITIAL_BLOCK_REWARD;
+    
+    /// Halving interval: reward halves every 2,100,000 blocks
+    pub const HalvingIntervalBlocks: BlockNumber = HALVING_INTERVAL;
+    
+    /// KOD-only trading starts after this block (~4 years)
+    pub const KodOnlyBlockNumber: BlockNumber = KOD_ONLY_BLOCK;
     
     /// Mining reserve pallet ID - generates deterministic account address
     pub const MiningReservePalletId: PalletId = PalletId(*b"mineresv");
@@ -133,6 +140,7 @@ impl pallet_block_reward::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
     type RewardAmount = RewardAmount;
+    type HalvingInterval = HalvingIntervalBlocks;
     type MiningReserveAccount = MiningReserveAccount;
 }
 
@@ -160,4 +168,5 @@ impl pallet_trade::Config for Runtime {
     type Currency = Balances;
     type MinBond = MinTradeBond;
     type MaxListingsPerUser = MaxListingsPerUser;
+    type KodOnlyBlock = KodOnlyBlockNumber;
 }

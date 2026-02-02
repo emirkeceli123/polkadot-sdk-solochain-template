@@ -1,6 +1,10 @@
 //! Service implementation for KOD Chain.
 //!
 //! This module sets up the PoW consensus and mining infrastructure.
+//! Features:
+//! - 30 second target block time
+//! - Dynamic difficulty adjustment (every 10 blocks)
+//! - SHA3-256 Proof of Work
 
 use futures::FutureExt;
 use sc_client_api::Backend;
@@ -12,6 +16,30 @@ use kod_runtime::{self, apis::RuntimeApi, opaque::Block};
 use std::sync::Arc;
 use sp_runtime::traits::Block as BlockT;
 use sp_consensus::BlockOrigin;
+use parking_lot::RwLock;
+
+// ============================================================================
+// MINING CONSTANTS
+// ============================================================================
+
+/// Target block time in seconds
+const TARGET_BLOCK_TIME_SECS: u64 = 30;
+
+/// Number of blocks between difficulty adjustments
+const DIFFICULTY_ADJUSTMENT_WINDOW: u64 = 10;
+
+/// Minimum difficulty (prevents difficulty from going too low)
+const MIN_DIFFICULTY: u128 = 1_000;
+
+/// Maximum difficulty (prevents overflow issues)
+const MAX_DIFFICULTY: u128 = u128::MAX / 2;
+
+/// Initial difficulty for new chains
+const INITIAL_DIFFICULTY: u128 = 50_000;
+
+// ============================================================================
+// SERVICE TYPES
+// ============================================================================
 
 pub(crate) type FullClient = sc_service::TFullClient<
     Block,
@@ -29,6 +57,102 @@ pub type Service = sc_service::PartialComponents<
     sc_transaction_pool::TransactionPoolHandle<Block, FullClient>,
     Option<Telemetry>,
 >;
+
+/// Difficulty state - shared between mining threads
+struct DifficultyState {
+    current_difficulty: u128,
+    last_adjustment_block: u64,
+    block_times: Vec<u64>, // Recent block times in milliseconds
+}
+
+impl DifficultyState {
+    fn new() -> Self {
+        Self {
+            current_difficulty: INITIAL_DIFFICULTY,
+            last_adjustment_block: 0,
+            block_times: Vec::with_capacity(DIFFICULTY_ADJUSTMENT_WINDOW as usize),
+        }
+    }
+
+    /// Record a new block time and potentially adjust difficulty
+    fn record_block(&mut self, block_number: u64, block_time_ms: u64) {
+        self.block_times.push(block_time_ms);
+
+        // Check if we need to adjust difficulty
+        if block_number > 0 && block_number % DIFFICULTY_ADJUSTMENT_WINDOW == 0 {
+            self.adjust_difficulty(block_number);
+        }
+    }
+
+    /// Adjust difficulty based on recent block times
+    fn adjust_difficulty(&mut self, block_number: u64) {
+        if self.block_times.is_empty() {
+            return;
+        }
+
+        // Calculate average block time
+        let total_time: u64 = self.block_times.iter().sum();
+        let avg_time_ms = total_time / self.block_times.len() as u64;
+        let target_time_ms = TARGET_BLOCK_TIME_SECS * 1000;
+
+        log::info!(
+            "⚙️  Difficulty adjustment at block #{}: avg_time={}ms, target={}ms",
+            block_number,
+            avg_time_ms,
+            target_time_ms
+        );
+
+        // Adjust difficulty
+        // If blocks are too fast (avg < target), increase difficulty
+        // If blocks are too slow (avg > target), decrease difficulty
+        let old_difficulty = self.current_difficulty;
+        
+        if avg_time_ms < target_time_ms {
+            // Blocks too fast - increase difficulty
+            // Factor = target / avg (will be > 1)
+            let factor = target_time_ms as u128 * 100 / avg_time_ms as u128;
+            self.current_difficulty = self.current_difficulty
+                .saturating_mul(factor)
+                .saturating_div(100);
+        } else if avg_time_ms > target_time_ms {
+            // Blocks too slow - decrease difficulty
+            // Factor = avg / target (will be > 1)
+            let factor = avg_time_ms as u128 * 100 / target_time_ms as u128;
+            self.current_difficulty = self.current_difficulty
+                .saturating_mul(100)
+                .saturating_div(factor);
+        }
+
+        // Clamp difficulty to valid range
+        self.current_difficulty = self.current_difficulty.clamp(MIN_DIFFICULTY, MAX_DIFFICULTY);
+
+        // Log the change
+        if self.current_difficulty != old_difficulty {
+            let change_pct = if self.current_difficulty > old_difficulty {
+                let diff = self.current_difficulty - old_difficulty;
+                format!("+{:.2}%", diff as f64 / old_difficulty as f64 * 100.0)
+            } else {
+                let diff = old_difficulty - self.current_difficulty;
+                format!("-{:.2}%", diff as f64 / old_difficulty as f64 * 100.0)
+            };
+            
+            log::info!(
+                "📊 Difficulty adjusted: {} -> {} ({})",
+                old_difficulty,
+                self.current_difficulty,
+                change_pct
+            );
+        }
+
+        // Clear block times for next window
+        self.block_times.clear();
+        self.last_adjustment_block = block_number;
+    }
+}
+
+// ============================================================================
+// SERVICE SETUP
+// ============================================================================
 
 /// Create the partial components for the node.
 pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
@@ -198,11 +322,18 @@ pub fn new_full<N: sc_network::NetworkBackend<Block, <Block as sp_runtime::trait
     // Start mining if enabled
     if mine {
         log::info!("⛏️  Mining enabled with {} thread(s)", mining_threads);
+        log::info!("⏱️  Target block time: {} seconds", TARGET_BLOCK_TIME_SECS);
+        log::info!("🎯 Initial difficulty: {}", INITIAL_DIFFICULTY);
+        log::info!("📊 Difficulty adjusts every {} blocks", DIFFICULTY_ADJUSTMENT_WINDOW);
+        
         if let Some(ref addr) = reward_address {
             log::info!("💰 Mining rewards will be sent to: {}", addr);
         } else {
             log::warn!("⚠️  No reward address specified. Mining but rewards won't be claimed!");
         }
+
+        // Create shared difficulty state
+        let difficulty_state = Arc::new(RwLock::new(DifficultyState::new()));
 
         // Create block proposer factory
         let proposer_factory = sc_basic_authorship::ProposerFactory::new(
@@ -217,6 +348,7 @@ pub fn new_full<N: sc_network::NetworkBackend<Block, <Block as sp_runtime::trait
         let mining_client = client.clone();
         let mining_select_chain = select_chain.clone();
         let mining_reward_address = reward_address.clone();
+        let mining_difficulty = difficulty_state.clone();
         
         task_manager.spawn_essential_handle().spawn_blocking(
             "pow-miner",
@@ -227,6 +359,7 @@ pub fn new_full<N: sc_network::NetworkBackend<Block, <Block as sp_runtime::trait
                     proposer_factory,
                     mining_select_chain,
                     mining_reward_address,
+                    mining_difficulty,
                 ).await;
             }),
         );
@@ -235,12 +368,17 @@ pub fn new_full<N: sc_network::NetworkBackend<Block, <Block as sp_runtime::trait
     Ok(task_manager)
 }
 
+// ============================================================================
+// MINING LOOP
+// ============================================================================
+
 /// Main mining loop - produces blocks with PoW
 async fn mining_loop<PF, SC>(
     client: Arc<FullClient>,
     mut proposer_factory: PF,
     select_chain: SC,
     reward_address: Option<String>,
+    difficulty_state: Arc<RwLock<DifficultyState>>,
 ) where
     PF: sp_consensus::Environment<Block> + Send + 'static,
     PF::Proposer: sp_consensus::Proposer<Block>,
@@ -251,17 +389,20 @@ async fn mining_loop<PF, SC>(
     
     log::info!("🔨 Mining loop started");
     
-    let difficulty: u128 = 100_000; // Lower difficulty for dev testing
     let mut nonce: u64 = rand::random();
     let mut blocks_mined: u64 = 0;
     let mut last_log = std::time::Instant::now();
     let mut hash_count: u64 = 0;
     
-    // Block time target: 6 seconds
-    let block_time = std::time::Duration::from_secs(6);
+    // Block time target
+    let block_time = std::time::Duration::from_secs(TARGET_BLOCK_TIME_SECS);
     let mut last_block_time = std::time::Instant::now();
+    let mut block_start_time = std::time::Instant::now();
     
     loop {
+        // Get current difficulty
+        let difficulty = difficulty_state.read().current_difficulty;
+        
         // Get the best block
         let best_header = match select_chain.best_chain().await {
             Ok(header) => header,
@@ -305,10 +446,10 @@ async fn mining_loop<PF, SC>(
         
         if pow_ok && time_ok {
             log::info!(
-                "🎉 Found valid PoW! Creating block #{}, nonce={}, hash={:x}",
+                "🎉 Found valid PoW! Creating block #{}, difficulty={}, nonce={}",
                 best_number + 1,
-                nonce,
-                hash_value
+                difficulty,
+                nonce
             );
             
             // Create the block using proposer factory
@@ -319,10 +460,21 @@ async fn mining_loop<PF, SC>(
             ).await {
                 Ok(()) => {
                     blocks_mined += 1;
+                    
+                    // Record block time for difficulty adjustment
+                    let block_time_ms = block_start_time.elapsed().as_millis() as u64;
+                    {
+                        let mut state = difficulty_state.write();
+                        state.record_block(best_number as u64 + 1, block_time_ms);
+                    }
+                    
                     last_block_time = std::time::Instant::now();
+                    block_start_time = std::time::Instant::now();
+                    
                     log::info!(
-                        "✅ Block #{} successfully produced and imported!",
-                        best_number + 1
+                        "✅ Block #{} produced in {}ms!",
+                        best_number + 1,
+                        block_time_ms
                     );
                 }
                 Err(e) => {
@@ -338,11 +490,13 @@ async fn mining_loop<PF, SC>(
         
         // Log stats every 10 seconds
         if last_log.elapsed() > std::time::Duration::from_secs(10) {
+            let current_difficulty = difficulty_state.read().current_difficulty;
             let hash_rate = hash_count as f64 / last_log.elapsed().as_secs_f64();
             log::info!(
-                "⛏️  Mining: {:.2} H/s, {} blocks produced, current best #{}",
+                "⛏️  Mining: {:.2} H/s, {} blocks, difficulty={}, best #{}",
                 hash_rate,
                 blocks_mined,
+                current_difficulty,
                 best_number
             );
             hash_count = 0;

@@ -7,12 +7,17 @@
 //! - Satın alma (escrow ile)
 //! - Teslimat onayı
 //! - Anlaşmazlık açma
+//! - KOD-only mod (belirli bloktan sonra sadece KOD ile ticaret)
 //!
 //! ## Nasıl Çalışır
 //! 1. Satıcı ilan verir, teminat (bond) kilitlenir
 //! 2. Alıcı satın alır, ödeme + teminat escrow'a gider
 //! 3. Teslimat onaylanırsa, satıcıya ödeme yapılır
 //! 4. Anlaşmazlık varsa, admin karar verir
+//!
+//! ## KOD-Only Modu
+//! Blok 4,200,000'den sonra (~4 yıl) sadece KOD ile ticaret yapılabilir.
+//! Bu, external payment (ETH, BTC vb.) kabul eden ilanları engeller.
 
 // Standart kütüphane yok (WASM için gerekli)
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -27,6 +32,7 @@ pub mod pallet {
         traits::{Currency, ReservableCurrency},
     };
     use frame_system::pallet_prelude::*;
+    use sp_runtime::traits::Saturating;
 
     // ============================================
     // TİP TANIMLAMALARI
@@ -35,6 +41,7 @@ pub mod pallet {
     /// Para birimi tipi (Balance ile çalışmak için)
     pub type BalanceOf<T> = 
         <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+
 
     /// İlan durumu
     #[derive(Clone, Encode, Decode, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
@@ -74,6 +81,8 @@ pub mod pallet {
         pub bond: BalanceOf<T>,
         /// Veri hash'i (IPFS CID veya detayların hash'i)
         pub data_hash: [u8; 32],
+        /// External ödeme kabul edilir mi? (true = ETH/BTC/USDT kabul, false = sadece KOD)
+        pub accepts_external: bool,
         /// Durum
         pub status: ListingStatus,
         /// Oluşturulma bloğu
@@ -125,6 +134,10 @@ pub mod pallet {
         /// Maksimum açık ilan sayısı (spam önleme)
         #[pallet::constant]
         type MaxListingsPerUser: Get<u32>;
+
+        /// KOD-only başlangıç bloğu (default ~4 yıl = 4,200,000)
+        #[pallet::constant]
+        type KodOnlyBlock: Get<BlockNumberFor<Self>>;
     }
 
     // ============================================
@@ -156,6 +169,27 @@ pub mod pallet {
     #[pallet::getter(fn user_listing_count)]
     pub type UserListingCount<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, u32, ValueQuery>;
 
+    /// KOD-only blok override (sudo ile değiştirilebilir)
+    /// None = Config'deki default değeri kullan
+    #[pallet::storage]
+    #[pallet::getter(fn kod_only_block_override)]
+    pub type KodOnlyBlockOverride<T: Config> = StorageValue<_, BlockNumberFor<T>, OptionQuery>;
+
+    /// Ticaret durdu mu? (acil durum için)
+    #[pallet::storage]
+    #[pallet::getter(fn trading_paused)]
+    pub type TradingPaused<T: Config> = StorageValue<_, bool, ValueQuery>;
+
+    /// Toplam tamamlanan ticaret sayısı
+    #[pallet::storage]
+    #[pallet::getter(fn total_trades_completed)]
+    pub type TotalTradesCompleted<T: Config> = StorageValue<_, u64, ValueQuery>;
+
+    /// Toplam işlem hacmi (KOD cinsinden)
+    #[pallet::storage]
+    #[pallet::getter(fn total_volume)]
+    pub type TotalVolume<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
+
     // ============================================
     // EVENTS (Blockchain'de yayınlanan olaylar)
     // ============================================
@@ -168,6 +202,7 @@ pub mod pallet {
             listing_id: u64,
             seller: T::AccountId,
             price: BalanceOf<T>,
+            accepts_external: bool,
         },
 
         /// İlan iptal edildi
@@ -211,6 +246,22 @@ pub mod pallet {
             buyer: T::AccountId,
             amount: BalanceOf<T>,
         },
+
+        /// KOD-only modu aktif oldu
+        KodOnlyModeActivated {
+            block_number: BlockNumberFor<T>,
+        },
+
+        /// KOD-only blok değiştirildi (sudo)
+        KodOnlyBlockChanged {
+            old_block: BlockNumberFor<T>,
+            new_block: BlockNumberFor<T>,
+        },
+
+        /// Ticaret durduruldu/başlatıldı
+        TradingPausedChanged {
+            paused: bool,
+        },
     }
 
     // ============================================
@@ -241,6 +292,28 @@ pub mod pallet {
         TooManyListings,
         /// Geçersiz durum
         InvalidStatus,
+        /// KOD-only modu aktif - external ödeme kabul edilmiyor
+        KodOnlyModeActive,
+        /// Ticaret şu anda durdurulmuş
+        TradingIsPaused,
+    }
+
+    // ============================================
+    // HELPER FUNCTIONS
+    // ============================================
+
+    impl<T: Config> Pallet<T> {
+        /// KOD-only modun aktif olup olmadığını kontrol et
+        pub fn is_kod_only_active() -> bool {
+            let current_block = frame_system::Pallet::<T>::block_number();
+            let kod_only_block = Self::get_kod_only_block();
+            current_block >= kod_only_block
+        }
+
+        /// Efektif KOD-only bloğunu al (override varsa onu kullan)
+        pub fn get_kod_only_block() -> BlockNumberFor<T> {
+            <KodOnlyBlockOverride<T>>::get().unwrap_or_else(T::KodOnlyBlock::get)
+        }
     }
 
     // ============================================
@@ -254,6 +327,7 @@ pub mod pallet {
         /// - `price`: Satış fiyatı
         /// - `bond`: Satıcı teminatı (kilitlenecek)
         /// - `data_hash`: İlan detaylarının hash'i
+        /// - `accepts_external`: External ödeme kabul eder mi? (KOD-only mod aktifse false olmalı)
         #[pallet::call_index(0)]
         #[pallet::weight(10_000)]
         pub fn create_listing(
@@ -261,43 +335,54 @@ pub mod pallet {
             price: BalanceOf<T>,
             bond: BalanceOf<T>,
             data_hash: [u8; 32],
+            accepts_external: bool,
         ) -> DispatchResult {
+            // Ticaret durdurulmuş mu?
+            ensure!(!<TradingPaused<T>>::get(), Error::<T>::TradingIsPaused);
+
             // 1. Kim çağırıyor? (imza kontrolü)
             let seller = ensure_signed(origin)?;
 
-            // 2. Teminat yeterli mi?
+            // 2. KOD-only modu aktifse external ödeme kabul etme
+            if Self::is_kod_only_active() && accepts_external {
+                return Err(Error::<T>::KodOnlyModeActive.into());
+            }
+
+            // 3. Teminat yeterli mi?
             ensure!(bond >= T::MinBond::get(), Error::<T>::InsufficientBond);
 
-            // 3. Kullanıcının çok fazla ilanı var mı?
+            // 4. Kullanıcının çok fazla ilanı var mı?
             let count = UserListingCount::<T>::get(&seller);
             ensure!(count < T::MaxListingsPerUser::get(), Error::<T>::TooManyListings);
 
-            // 4. Teminatı kilitle (reserve)
+            // 5. Teminatı kilitle (reserve)
             T::Currency::reserve(&seller, bond)?;
 
-            // 5. Yeni ilan ID al
+            // 6. Yeni ilan ID al
             let listing_id = NextListingId::<T>::get();
             NextListingId::<T>::put(listing_id + 1);
 
-            // 6. İlanı kaydet
+            // 7. İlanı kaydet
             let listing = Listing {
                 seller: seller.clone(),
                 price,
                 bond,
                 data_hash,
+                accepts_external,
                 status: ListingStatus::Active,
                 created_at: frame_system::Pallet::<T>::block_number(),
             };
             Listings::<T>::insert(listing_id, listing);
 
-            // 7. Kullanıcı ilan sayısını artır
+            // 8. Kullanıcı ilan sayısını artır
             UserListingCount::<T>::insert(&seller, count + 1);
 
-            // 8. Event yayınla
+            // 9. Event yayınla
             Self::deposit_event(Event::ListingCreated {
                 listing_id,
                 seller,
                 price,
+                accepts_external,
             });
 
             Ok(())
@@ -345,6 +430,9 @@ pub mod pallet {
             listing_id: u64,
             buyer_bond: BalanceOf<T>,
         ) -> DispatchResult {
+            // Ticaret durdurulmuş mu?
+            ensure!(!<TradingPaused<T>>::get(), Error::<T>::TradingIsPaused);
+
             let buyer = ensure_signed(origin)?;
 
             // İlanı bul
@@ -353,6 +441,11 @@ pub mod pallet {
 
             // Aktif mi?
             ensure!(listing.status == ListingStatus::Active, Error::<T>::ListingNotActive);
+
+            // KOD-only modu aktifse ve ilan external ödeme kabul ediyorsa, reddet
+            if Self::is_kod_only_active() && listing.accepts_external {
+                return Err(Error::<T>::KodOnlyModeActive.into());
+            }
 
             // Kendi ilanını alamaz
             ensure!(listing.seller != buyer, Error::<T>::CannotBuyOwnListing);
@@ -443,6 +536,10 @@ pub mod pallet {
 
             // Kullanıcı ilan sayısını azalt
             UserListingCount::<T>::mutate(&trade.seller, |count| *count = count.saturating_sub(1));
+
+            // İstatistikleri güncelle
+            <TotalTradesCompleted<T>>::mutate(|n| *n = n.saturating_add(1));
+            <TotalVolume<T>>::mutate(|v| *v = v.saturating_add(trade.price));
 
             Self::deposit_event(Event::TradeCompleted {
                 trade_id,
@@ -546,6 +643,10 @@ pub mod pallet {
 
                 trade.status = TradeStatus::Completed;
 
+                // İstatistikleri güncelle
+                <TotalTradesCompleted<T>>::mutate(|n| *n = n.saturating_add(1));
+                <TotalVolume<T>>::mutate(|v| *v = v.saturating_add(trade.price));
+
                 Self::deposit_event(Event::TradeCompleted {
                     trade_id,
                     buyer: trade.buyer.clone(),
@@ -566,6 +667,68 @@ pub mod pallet {
 
             Ok(())
         }
+
+        // ============================================
+        // SUDO FONKSİYONLARI (Admin için)
+        // ============================================
+
+        /// KOD-only bloğunu değiştir (sudo only)
+        #[pallet::call_index(6)]
+        #[pallet::weight(10_000)]
+        pub fn set_kod_only_block(
+            origin: OriginFor<T>,
+            new_block: BlockNumberFor<T>,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+
+            let old_block = Self::get_kod_only_block();
+            <KodOnlyBlockOverride<T>>::put(new_block);
+
+            Self::deposit_event(Event::KodOnlyBlockChanged {
+                old_block,
+                new_block,
+            });
+
+            Ok(())
+        }
+
+        /// Ticareti durdur/başlat (sudo only - acil durum için)
+        #[pallet::call_index(7)]
+        #[pallet::weight(10_000)]
+        pub fn set_trading_paused(
+            origin: OriginFor<T>,
+            paused: bool,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+
+            <TradingPaused<T>>::put(paused);
+
+            Self::deposit_event(Event::TradingPausedChanged { paused });
+
+            Ok(())
+        }
+    }
+
+    // ============================================
+    // HOOKS
+    // ============================================
+
+    #[pallet::hooks]
+    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+        fn on_initialize(n: BlockNumberFor<T>) -> Weight {
+            // KOD-only modu tam olarak bu blokta aktif mi? Event yayınla
+            let kod_only_block = Self::get_kod_only_block();
+            if n == kod_only_block {
+                Self::deposit_event(Event::KodOnlyModeActivated {
+                    block_number: n,
+                });
+                log::info!(
+                    target: "trade",
+                    "🔒 KOD-only mode activated at block {:?}. External payments no longer accepted.",
+                    n
+                );
+            }
+            Weight::zero()
+        }
     }
 }
-

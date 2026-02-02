@@ -1,9 +1,11 @@
 //! KOD Chain Runtime
 //!
 //! A Proof-of-Work blockchain with:
-//! - 4,000,000 KOD total supply cap
-//! - 1,000 KOD block reward to miners
+//! - 1,000,000,000 KOD total supply cap (1 Billion)
+//! - 250 KOD initial block reward (halves every ~2 years)
+//! - 30 second target block time
 //! - SHA3-256 mining algorithm
+//! - KOD-only trading after block 4,200,000 (~4 years)
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -37,15 +39,27 @@ pub use sp_runtime::BuildStorage;
 // ECONOMIC CONSTANTS
 // ============================================================================
 
-/// Total supply of KOD tokens: 4,000,000 KOD
+/// Total supply of KOD tokens: 1,000,000,000 KOD (1 Billion)
 /// All tokens are allocated at genesis (no inflation)
-pub const TOTAL_SUPPLY: Balance = 4_000_000 * UNIT;
+pub const TOTAL_SUPPLY: Balance = 1_000_000_000 * UNIT;
 
-/// Mining reward per block: 1,000 KOD
-pub const BLOCK_REWARD: Balance = 1_000 * UNIT;
+/// Initial mining reward per block: 250 KOD
+/// This halves every HALVING_INTERVAL blocks
+pub const INITIAL_BLOCK_REWARD: Balance = 250 * UNIT;
 
-/// Mining reserve allocation: 3,000,000 KOD (for 3,000 blocks worth of rewards)
-pub const MINING_RESERVE: Balance = 3_000_000 * UNIT;
+/// Halving interval: every 2,100,000 blocks (~2 years at 30s/block)
+/// After each interval, block reward is halved
+pub const HALVING_INTERVAL: BlockNumber = 2_100_000;
+
+/// KOD-only trading block: after block 4,200,000 (~4 years)
+/// Only KOD can be used for trading after this block
+pub const KOD_ONLY_BLOCK: BlockNumber = 4_200_000;
+
+/// Mining reserve allocation: 900,000,000 KOD (900M for ~8 years of rewards)
+pub const MINING_RESERVE: Balance = 900_000_000 * UNIT;
+
+/// Test/Foundation allocation: 100,000,000 KOD (100M)
+pub const FOUNDATION_RESERVE: Balance = 100_000_000 * UNIT;
 
 // ============================================================================
 // UNIT DEFINITIONS
@@ -63,14 +77,33 @@ pub const EXISTENTIAL_DEPOSIT: Balance = MILLI_UNIT;
 // BLOCK TIME
 // ============================================================================
 
-/// Target block time: 60 seconds (PoW takes time)
-pub const MILLI_SECS_PER_BLOCK: u64 = 60_000;
+/// Target block time: 30 seconds
+pub const MILLI_SECS_PER_BLOCK: u64 = 30_000;
 pub const SLOT_DURATION: u64 = MILLI_SECS_PER_BLOCK;
 
 // Time is measured by number of blocks
-pub const MINUTES: BlockNumber = 60_000 / (MILLI_SECS_PER_BLOCK as BlockNumber);
-pub const HOURS: BlockNumber = MINUTES * 60;
-pub const DAYS: BlockNumber = HOURS * 24;
+pub const MINUTES: BlockNumber = 60_000 / (MILLI_SECS_PER_BLOCK as BlockNumber); // 2 blocks/min
+pub const HOURS: BlockNumber = MINUTES * 60;   // 120 blocks/hour
+pub const DAYS: BlockNumber = HOURS * 24;      // 2,880 blocks/day
+pub const YEARS: BlockNumber = DAYS * 365;     // ~1,051,200 blocks/year
+
+// ============================================================================
+// HALVING CALCULATION
+// ============================================================================
+
+/// Calculate the block reward for a given block number
+/// Reward halves every HALVING_INTERVAL blocks
+pub fn calculate_block_reward(block_number: BlockNumber) -> Balance {
+    let halvings = block_number / HALVING_INTERVAL;
+    
+    // After 10 halvings, reward is essentially zero (250 / 1024 < 1)
+    if halvings >= 10 {
+        return 0;
+    }
+    
+    // Shift right by halvings (divide by 2^halvings)
+    INITIAL_BLOCK_REWARD >> halvings
+}
 
 pub const BLOCK_HASH_COUNT: BlockNumber = 2400;
 
@@ -117,7 +150,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: alloc::borrow::Cow::Borrowed("kod-chain"),
     impl_name: alloc::borrow::Cow::Borrowed("kod-chain"),
     authoring_version: 1,
-    spec_version: 100,
+    spec_version: 200,  // Bumped for economic changes
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
     transaction_version: 1,
