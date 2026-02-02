@@ -92,6 +92,7 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
 /// Simple PoW block verifier (accepts all blocks for now)
 struct PowVerifier;
 
+#[async_trait::async_trait]
 impl<B: sp_runtime::traits::Block> sc_consensus::Verifier<B> for PowVerifier {
     async fn verify(
         &self,

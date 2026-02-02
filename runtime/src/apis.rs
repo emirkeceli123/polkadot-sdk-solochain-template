@@ -23,7 +23,7 @@ use sp_core::crypto::KeyTypeId;
 // Local module imports
 use super::{
     AccountId, Balance, Block, Executive, InherentDataExt, Nonce, Runtime,
-    RuntimeCall, RuntimeGenesisConfig, SessionKeys, System, TransactionPayment, VERSION,
+    RuntimeCall, RuntimeGenesisConfig, System, TransactionPayment, VERSION,
 };
 
 impl_runtime_apis! {
