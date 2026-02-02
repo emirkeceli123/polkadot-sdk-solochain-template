@@ -1,0 +1,42 @@
+[package]
+name = "pallet-trade"
+version = "0.1.0"
+description = "KOD Chain - Güvenli Ticaret Pallet'i"
+authors = ["KOD Chain Team"]
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+# Substrate FRAME kütüphaneleri
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+
+# Codec - veriyi encode/decode etmek için
+codec = { workspace = true, features = ["derive"] }
+scale-info = { workspace = true, features = ["derive"] }
+
+# Runtime tipleri
+sp-runtime = { workspace = true }
+
+# Balances pallet'i ile etkileşim (para transferi için)
+pallet-balances = { workspace = true }
+
+# Loglama
+log = { workspace = true }
+
+[dev-dependencies]
+sp-core = { workspace = true }
+sp-io = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "scale-info/std",
+    "frame-support/std",
+    "frame-system/std",
+    "sp-runtime/std",
+    "pallet-balances/std",
+    "log/std",
+]
+try-runtime = ["frame-support/try-runtime"]
