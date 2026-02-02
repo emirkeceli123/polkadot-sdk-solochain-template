@@ -3,7 +3,8 @@
 //! This module sets up the PoW consensus and mining infrastructure.
 
 use futures::FutureExt;
-use sc_client_api::{Backend, BlockImport};
+use sc_client_api::Backend;
+use sc_consensus::BlockImport;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
@@ -247,7 +248,6 @@ async fn mining_loop<PF, SC>(
 {
     use sha3::{Digest, Sha3_256};
     use sp_runtime::traits::Header;
-    use sc_client_api::BlockBackend;
     
     log::info!("🔨 Mining loop started");
     
@@ -366,9 +366,9 @@ where
     PF: sp_consensus::Environment<Block>,
     PF::Proposer: sp_consensus::Proposer<Block>,
 {
-    use sp_consensus::{Environment, Proposer};
-    use sp_runtime::traits::Header;
+    use sp_consensus::Proposer;
     use sp_runtime::generic::Digest;
+    use sc_consensus::BlockImport;
     
     let parent_hash = parent.hash();
     
@@ -409,7 +409,8 @@ where
         sc_consensus::StorageChanges::Changes(proposal.storage_changes)
     );
     
-    client.import_block(import_params)
+    // Import block using BlockImport trait
+    BlockImport::import_block(&**client, import_params)
         .await
         .map_err(|e| format!("Failed to import block: {:?}", e))?;
     
