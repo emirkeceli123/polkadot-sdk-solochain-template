@@ -300,12 +300,16 @@
             
             <div class="stats">
                 <div class="stat">
-                    <div class="stat-value">4,000,000</div>
+                    <div class="stat-value">1,000,000,000</div>
                     <div class="stat-label">Total Supply</div>
                 </div>
                 <div class="stat">
-                    <div class="stat-value">1,000</div>
+                    <div class="stat-value">250</div>
                     <div class="stat-label">KOD / Block</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value">30s</div>
+                    <div class="stat-label">Block Time</div>
                 </div>
                 <div class="stat">
                     <div class="stat-value">SHA3-256</div>
@@ -357,8 +361,8 @@
                     <span class="cmd">tar -xzf kod-node-*.tar.gz</span><br><br>
                     <span class="comment"># Make it executable</span><br>
                     <span class="cmd">chmod +x kod-node</span><br><br>
-                    <span class="comment"># Start mining!</span><br>
-                    <span class="cmd">./kod-node --mine --reward-address YOUR_SS58_ADDRESS</span>
+                    <span class="comment"># Start mining! (wallet auto-generated)</span><br>
+                    <span class="cmd">./kod-node --mine</span>
                 </div>
             </div>
             
@@ -366,17 +370,18 @@
                 <div class="code-header">Windows (PowerShell)</div>
                 <div class="code-content">
                     <span class="comment"># Extract the zip file, then:</span><br>
-                    <span class="cmd">.\kod-node.exe --mine --reward-address YOUR_SS58_ADDRESS</span>
+                    <span class="cmd">.\kod-node.exe --mine</span>
                 </div>
             </div>
             
             <div class="code-block">
-                <div class="code-header">Generate a Wallet Address</div>
+                <div class="code-header">Wallet Commands</div>
                 <div class="code-content">
-                    <span class="comment"># Visit polkadot.js.org/apps to create a wallet</span><br>
-                    <span class="comment"># Or use the Polkadot extension</span><br>
-                    <span class="comment"># Your SS58 address will look like:</span><br>
-                    <span class="cmd">5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY</span>
+                    <span class="comment"># Your wallet is auto-created at ~/.kod/wallet.json</span><br><br>
+                    <span class="comment"># View your wallet address:</span><br>
+                    <span class="cmd">./kod-node wallet info</span><br><br>
+                    <span class="comment"># Backup your seed phrase:</span><br>
+                    <span class="cmd">./kod-node wallet export-seed</span>
                 </div>
             </div>
         </section>
@@ -390,14 +395,14 @@
             
             <div class="feature">
                 <div class="feature-icon">💰</div>
-                <h3>Fair Distribution</h3>
-                <p>4 million KOD total supply. 1,000 KOD per block goes directly to miners. No pre-mine for team.</p>
+                <h3>Bitcoin-Style Halving</h3>
+                <p>1 billion KOD supply. 250 KOD per block, halving every ~2 years. 8 year mining period.</p>
             </div>
             
             <div class="feature">
-                <div class="feature-icon">🔧</div>
-                <h3>Easy Setup</h3>
-                <p>Download, extract, run. No complex configuration. Works on Linux, macOS, and Windows.</p>
+                <div class="feature-icon">🔑</div>
+                <h3>Auto Wallet</h3>
+                <p>Just run ./kod-node --mine. Wallet is automatically created and saved. No setup needed!</p>
             </div>
             
             <div class="feature">
