@@ -341,21 +341,28 @@ pub mod pallet {
                 .ok()
                 .flatten()?;
 
-            // Decode the miner address from SS58 bytes
+            // Decode the miner address from SS58 string bytes
             if let Some(address_bytes) = inherent_data.miner_address {
-                // Try to decode as AccountId directly
-                if let Ok(miner) = T::AccountId::decode(&mut &address_bytes[..]) {
-                    return Some(Call::set_miner { miner });
-                }
-                
-                // If direct decode fails, try parsing as SS58 string
+                // First, try parsing as SS58 string (this is the expected format)
                 if let Ok(address_str) = core::str::from_utf8(&address_bytes) {
                     use sp_core::crypto::Ss58Codec;
                     if let Ok(account_id) = sp_core::crypto::AccountId32::from_ss58check(address_str) {
                         let account_bytes: [u8; 32] = account_id.into();
                         if let Ok(miner) = T::AccountId::decode(&mut &account_bytes[..]) {
+                            log::debug!(
+                                target: "mining",
+                                "✅ Decoded miner address from SS58: {}",
+                                address_str
+                            );
                             return Some(Call::set_miner { miner });
                         }
+                    }
+                }
+                
+                // Fallback: try to decode as raw AccountId bytes (32 bytes)
+                if address_bytes.len() == 32 {
+                    if let Ok(miner) = T::AccountId::decode(&mut &address_bytes[..]) {
+                        return Some(Call::set_miner { miner });
                     }
                 }
                 
