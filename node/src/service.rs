@@ -8,7 +8,6 @@
 
 use futures::FutureExt;
 use sc_client_api::Backend;
-use sc_consensus::BlockImport;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
@@ -457,6 +456,7 @@ async fn mining_loop<PF, SC>(
                 &client,
                 &mut proposer_factory,
                 &best_header,
+                reward_address.clone(),
             ).await {
                 Ok(()) => {
                     blocks_mined += 1;
@@ -515,6 +515,7 @@ async fn create_block_with_proposer<PF>(
     client: &Arc<FullClient>,
     proposer_factory: &mut PF,
     parent: &<Block as BlockT>::Header,
+    reward_address: Option<String>,
 ) -> Result<(), String>
 where
     PF: sp_consensus::Environment<Block>,
@@ -523,14 +524,27 @@ where
     use sp_consensus::Proposer;
     use sp_runtime::generic::Digest;
     use sc_consensus::BlockImport;
+    use pallet_block_reward::{INHERENT_IDENTIFIER as BLOCK_REWARD_IDENTIFIER, MinerInherentData};
+    use sp_runtime::traits::Header;
     
-    let parent_hash = parent.hash();
+    let _parent_hash = parent.hash();
+    let block_number = *parent.number() + 1;
     
-    // Create inherent data (timestamp)
-    let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+    // Create inherent data
     let mut inherent_data = sp_inherents::InherentData::new();
+    
+    // Add timestamp inherent
+    let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
     inherent_data.put_data(sp_timestamp::INHERENT_IDENTIFIER, &timestamp.timestamp())
         .map_err(|e| format!("Failed to add timestamp: {:?}", e))?;
+    
+    // Add block reward inherent (miner address)
+    let miner_inherent = MinerInherentData {
+        miner_address: reward_address.map(|addr| addr.as_bytes().to_vec()),
+        block_number,
+    };
+    inherent_data.put_data(BLOCK_REWARD_IDENTIFIER, &miner_inherent)
+        .map_err(|e| format!("Failed to add block reward inherent: {:?}", e))?;
     
     // Create proposer
     let proposer = proposer_factory
