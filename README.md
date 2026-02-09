@@ -1,138 +1,202 @@
-# KOD Chain
+# 🔗 KOD Chain
 
-**A Proof-of-Work blockchain built on Substrate**
+**Güvenilir, Merkeziyetsiz Ticaret Platformu**
 
-## 🎯 Overview
-
-KOD Chain is a true PoW (Proof-of-Work) blockchain where anyone can become a miner by simply running the node software. No staking required, no validators to trust - just pure computational mining.
-
-### Key Features
-
-- **SHA3-256 Mining**: Real proof-of-work algorithm
-- **Fixed Supply**: 4,000,000 KOD total supply
-- **Block Rewards**: 1,000 KOD per block to miners
-- **Fair Launch**: No pre-mine, no team allocation
-- **Substrate Based**: Modern blockchain framework
-
-## 🚀 Quick Start
-
-### Download
-
-Visit [kod.services](https://kod.services) to download the pre-built binaries for your platform:
-
-- Linux x86_64
-- macOS Apple Silicon (M1/M2/M3/M4)
-- macOS Intel
-- Windows x86_64
-
-### Start Mining
-
-```bash
-# Linux/macOS
-tar -xzf kod-node-*.tar.gz
-chmod +x kod-node
-./kod-node --mine --reward-address YOUR_SS58_ADDRESS
-
-# Windows
-kod-node.exe --mine --reward-address YOUR_SS58_ADDRESS
-```
-
-### CLI Options
-
-| Flag | Description |
-|------|-------------|
-| `--mine` | Enable mining mode |
-| `--mining-threads N` | Number of mining threads (default: 1) |
-| `--reward-address ADDR` | SS58 address for mining rewards |
-| `--name NAME` | Human-readable node name |
-| `--base-path PATH` | Data directory |
-| `--port PORT` | P2P port (default: 30333) |
-| `--rpc-port PORT` | RPC port (default: 9944) |
-
-### Example Commands
-
-```bash
-# Single-threaded mining
-./kod-node --mine --reward-address 5GrwvaEF...
-
-# Multi-threaded mining (4 threads)
-./kod-node --mine --mining-threads 4 --reward-address 5GrwvaEF...
-
-# Run as a bootnode
-./kod-node --name "KOD-Bootnode" --port 30333
-
-# Connect to existing network
-./kod-node --mine --bootnodes /ip4/IP/tcp/30333/p2p/PEER_ID --reward-address 5GrwvaEF...
-```
-
-## 🏗️ Building from Source
-
-### Prerequisites
-
-- Rust 1.75+ (install from [rustup.rs](https://rustup.rs))
-- CMake
-- Protobuf compiler (`protoc`)
-- LLVM/Clang
-
-### Build
-
-```bash
-# Clone the repository
-git clone https://github.com/emirkeceli123/polkadot-sdk-solochain-template.git
-cd polkadot-sdk-solochain-template
-
-# Build in release mode
-cargo build --release
-
-# Binary will be at: target/release/kod-node
-```
-
-## 📊 Economics
-
-| Parameter | Value |
-|-----------|-------|
-| Total Supply | 4,000,000 KOD |
-| Block Reward | 1,000 KOD |
-| Target Block Time | ~60 seconds |
-| Mining Algorithm | SHA3-256 |
-| Decimal Places | 18 |
-
-### Distribution
-
-- **Mining Reserve**: 3,000,000 KOD (for block rewards)
-- **Initial Distribution**: 1,000,000 KOD (development/community)
-
-Mining will continue until the Mining Reserve is depleted (approximately 3,000 blocks).
-
-## 🔐 Creating a Wallet
-
-1. Visit [polkadot.js.org/apps](https://polkadot.js.org/apps)
-2. Go to Accounts → Add Account
-3. Save your seed phrase securely!
-4. Copy your SS58 address (starts with `5...`)
-5. Use this address with `--reward-address`
-
-## 📁 Project Structure
-
-```
-kod-chain/
-├── node/               # Node implementation (CLI, networking, consensus)
-├── runtime/            # Blockchain runtime (FRAME pallets)
-├── pallets/
-│   ├── template/       # Example pallet
-│   └── block-reward/   # Mining reward distribution
-├── website/            # Landing page for kod.services
-└── .github/workflows/  # CI/CD for multi-platform builds
-```
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## 📄 License
-
-MIT-0 License - Use however you want!
+[![Build](https://github.com/emirkeceli123/polkadot-sdk-solochain-template/actions/workflows/build-release.yml/badge.svg)](https://github.com/emirkeceli123/polkadot-sdk-solochain-template/actions)
+[![Release](https://img.shields.io/github/v/release/emirkeceli123/polkadot-sdk-solochain-template)](https://github.com/emirkeceli123/polkadot-sdk-solochain-template/releases)
 
 ---
 
+## 🎯 Nedir?
+
+KOD Chain, **aracısız ve güvenilir ticaret** için tasarlanmış bir Proof-of-Work blockchain'dir.
+
+- ⛏️ **Gerçek PoW Madenciliği** - SHA3-256 algoritması
+- 🔒 **Escrow Sistemi** - Güvenli ticaret
+- 💰 **1 Milyar Toplam Arz** - Sabit, enflasyonsuz
+- 🌍 **Tamamen Merkeziyetsiz** - Herkes node çalıştırabilir
+
+---
+
+## ⚡ Hızlı Başlangıç
+
+### Madencilik Başlat
+
+```bash
+# İndir
+wget https://kod.services/download/kod-node-linux-x64.tar.gz
+
+# Çıkar ve çalıştır
+tar -xzf kod-node-*.tar.gz
+chmod +x kod-node
+./kod-node --mine
+
+# Cüzdan otomatik oluşturulur! 🎉
+```
+
+### Cüzdan Yönetimi
+
+```bash
+# Cüzdan bilgisi
+./kod-node wallet info
+
+# Seed phrase (yedekle!)
+./kod-node wallet export-seed
+```
+
+---
+
+## 📊 Ekonomi
+
+| Parametre | Değer |
+|-----------|-------|
+| **Toplam Arz** | 1,000,000,000 KOD |
+| **Blok Ödülü** | 250 KOD |
+| **Blok Süresi** | 30 saniye |
+| **Halving** | Her 2.1M blok (~2 yıl) |
+| **Algoritma** | SHA3-256 |
+
+### Dağılım
+
+```
+Madencilik Havuzu: 900,000,000 KOD (%90)
+Geliştirme:        100,000,000 KOD (%10)
+```
+
+---
+
+## 🏪 Trade Pallet
+
+Güvenli ticaret için yerleşik escrow sistemi:
+
+```
+Satıcı → İlan Ver → Alıcı Satın Al → Satıcı Kabul → Escrow → Test → QR → Teslimat → Ödeme
+                                                       ↓
+                                                  Anlaşmazlık? → Hakem Kararı (BC kanıtları ile)
+```
+
+### Özellikler
+
+- ✅ İlan oluşturma/iptal
+- ✅ Escrow ile satın alma
+- ✅ **Satıcı kabul/red sistemi (PendingSellerConfirm)**
+- ✅ Teslimat onayı
+- ✅ **Cihaz tanılama raporu (submit_diagnostics)** - on-chain test sonuçları
+- ✅ Anlaşmazlık çözümü (blockchain kanıtları ile)
+- ✅ Teminat sistemi
+- ✅ KOD-only modu (4 yıl sonra)
+
+---
+
+## 🛠️ Geliştirici Rehberi
+
+### Kaynak Koddan Derleme
+
+```bash
+# Gereksinimler: Rust 1.76+, protoc, cmake
+
+git clone https://github.com/emirkeceli123/polkadot-sdk-solochain-template.git
+cd polkadot-sdk-solochain-template
+
+cargo build --release
+./target/release/kod-node --dev --mine --tmp
+```
+
+### Polkadot.js Apps ile Bağlanma
+
+```
+https://polkadot.js.org/apps/?rpc=ws://127.0.0.1:9944
+```
+
+---
+
+## 📁 Proje Yapısı
+
+```
+kod-chain/
+├── node/                 # Node (CLI, mining, network)
+├── runtime/              # Runtime (WASM)
+├── pallets/
+│   ├── block-reward/     # Madencilik ödülleri
+│   └── trade/            # Ticaret sistemi
+├── website/              # kod.services
+└── docs/                 # Dokümantasyon
+```
+
+---
+
+## 🔗 Bağlantılar
+
+- 🌐 **Website:** [kod.services](https://kod.services)
+- 📖 **Dokümantasyon:** [docs/KOD_CHAIN.md](docs/KOD_CHAIN.md)
+- 📦 **Releases:** [GitHub Releases](https://github.com/emirkeceli123/polkadot-sdk-solochain-template/releases)
+- 📱 **Mobile App:** [kod-mobile/](../kod-mobile/) - React Native/Expo uygulaması
+
+---
+
+## 📱 Mobil Uygulama
+
+KOD Chain için tam özellikli mobil ticaret uygulaması:
+
+```bash
+cd kod-mobile
+npm install --legacy-peer-deps
+npx expo start
+```
+
+**Özellikler:**
+- ✅ Blockchain entegrasyonu (@polkadot/api)
+- ✅ Otomatik cihaz tespiti
+- ✅ Güvenli cüzdan yönetimi (sr25519)
+- ✅ Gerçek zamanlı ilan görüntüleme
+- ✅ Device attestation ve Merkle tree
+
+Detaylar için: [kod-mobile/README.md](../kod-mobile/README.md)
+
+---
+
+## 📝 Changelog
+
+### 2026-02-07 - Trade Pallet v2.0 + Mobile v1.1
+
+**Yeni Ticaret Akışı:**
+- ✅ **PendingSellerConfirm** durumu - satıcı kabul/red mekanizması
+- ✅ **accept_trade** extrinsic - satıcı kabul eder, taraflar + şartlar BC'ye yazılır
+- ✅ **reject_trade** extrinsic - satıcı reddeder, alıcıya iade yapılır
+- ✅ **submit_diagnostics** extrinsic - cihaz test sonuçları on-chain kaydedilir
+- ✅ **DiagnosticReport** + **DiagnosticTests** - her test ayrı ayrı BC'de
+- ✅ **TradeAccepted/TradeRejected** eventleri
+- ✅ **confirm_delivery** artık diagnostik hash'i de dahil eder
+
+**Mobil Uygulama:**
+- ✅ Satıcı kabul/red UI (trade detay ekranı)
+- ✅ PhoneDoctor tarzı 12 cihaz testi (ekran, dokunmatik, hoparlör, mikrofon, titreşim, ivmeölçer, jiroskop, kamera, cihaz bilgisi)
+- ✅ Otomatik QR oluşturma (testler bitince)
+- ✅ QR tarama ve doğrulama (alıcı tarafı)
+- ✅ Blockchain sözleşme detayları (contract_hash, final_hash, diagnostic rapor)
+- ✅ Trade detay ekranında tam blockchain verisi görüntüleme
+- ✅ useFocusEffect ile trade listesi otomatik yenileme
+
+**Test Edildi:**
+- 2 telefon ile gerçek ticaret testi (Xiaomi + iPhone)
+- Node: `./kod-node --dev --mine --tmp --rpc-external --rpc-cors all`
+- Test hesaplar: `//Alice` (satıcı), `//Bob` (alıcı)
+- Tam akış: İlan → Satın Al → Satıcı Kabul → Test → QR → Onay → Tamamlandı
+
+Detaylar: [kod-mobile/docs/TECHNICAL.md](../kod-mobile/docs/TECHNICAL.md)
+
+---
+
+## 📄 Lisans
+
+MIT License
+
+---
+
+<div align="center">
+
+**KOD Chain** - *Güvenilir Ticaretin Geleceği* 🔗
+
 Built with ❤️ using [Polkadot SDK](https://github.com/paritytech/polkadot-sdk)
+
+</div>

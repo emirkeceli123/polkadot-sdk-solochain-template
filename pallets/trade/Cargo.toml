@@ -15,8 +15,9 @@ frame-system = { workspace = true }
 codec = { workspace = true, features = ["derive"] }
 scale-info = { workspace = true, features = ["derive"] }
 
-# Runtime tipleri
+# Runtime tipleri ve I/O (hashing için)
 sp-runtime = { workspace = true }
+sp-io = { workspace = true }
 
 # Balances pallet'i ile etkileşim (para transferi için)
 pallet-balances = { workspace = true }
@@ -36,6 +37,7 @@ std = [
     "frame-support/std",
     "frame-system/std",
     "sp-runtime/std",
+    "sp-io/std",
     "pallet-balances/std",
     "log/std",
 ]
