@@ -99,26 +99,24 @@ TOPLAM ARZ: 1,000,000,000 KOD (1 Milyar)
 ### Blok Ödülleri ve Halving
 
 ```
-Blok Süresi: 30 saniye
-İlk Ödül: 250 KOD/blok
-Halving: Her 2,100,000 blok (~2 yıl)
+Blok Süresi: 6 saniye
+İlk Ödül: 50 KOD/blok
+Halving: Her 10,500,000 blok (~2 yıl)
 
-Dönem    Blok Aralığı         Ödül/Blok    Süre
-──────────────────────────────────────────────────
-Era 0    0 - 2,099,999        250 KOD      ~2 yıl
-Era 1    2,100,000 - 4,199,999  125 KOD    ~2 yıl
-Era 2    4,200,000 - 6,299,999   62.5 KOD  ~2 yıl
-Era 3    6,300,000 - 8,399,999   31.25 KOD ~2 yıl
+Dönem    Blok Aralığı           Ödül/Blok    Süre
+────────────────────────────────────────────────────
+Era 0    0 - 10,499,999          50 KOD       ~2 yıl
+Era 1    10,500,000 - 20,999,999  25 KOD      ~2 yıl
 ...
-Era 10+  21,000,000+             ~0 KOD     ∞
+Era 10+  105,000,000+             ~0 KOD       ∞
 ```
 
 ### KOD-Only Modu
 
 ```
-Blok 4,200,000'den sonra (~4 yıl):
+Blok 21,000,000'den sonra (~4 yıl):
 • Sadece KOD ile ticaret yapılabilir
-• External ödeme (ETH, BTC, USDT) kabul eden ilanlar engellenirThis ensures KOD becomes the primary medium of exchange.
+• External ödeme (ETH, BTC, USDT) kabul eden ilanlar engellenir.
 ```
 
 ---
@@ -178,12 +176,16 @@ Blok 4,200,000'den sonra (~4 yıl):
 
 | Fonksiyon | Kim | Ne Yapar |
 |-----------|-----|----------|
-| `create_listing` | Satıcı | Yeni ilan oluşturur |
+| `create_listing` | Satıcı | Yeni ilan (KOD veya TL fiyat + IBAN hash) |
 | `cancel_listing` | Satıcı | İlanı iptal eder |
-| `purchase` | Alıcı | Satın alır, escrow'a gider |
-| `confirm_delivery` | Alıcı | Teslimatı onaylar |
+| `purchase` | Alıcı | Satın alır (KOD: fiyat+bond; TL: sadece bond + alıcı IBAN hash) |
+| `accept_trade` | Satıcı | Kabul eder (TL ise AwaitingPayment, KOD ise Escrow) |
+| `confirm_delivery` | Alıcı | KOD ticaretinde teslimatı onaylar |
+| `mark_payment_sent` | Alıcı | TL havalesini yaptığını bildirir |
+| `confirm_tl_payment` | Satıcı | TL ödemesinin geldiğini onaylar, ticaret tamamlanır |
 | `open_dispute` | İkisi de | Anlaşmazlık başlatır |
 | `resolve_dispute` | Admin | Anlaşmazlığı çözer |
+| `set_kod_tl_rate` | Admin | KOD/TL kurunu ayarlar (kuruş, varsayılan 100 = 1:1) |
 | `set_trading_paused` | Admin | Acil durum durdurma |
 | `set_kod_only_block` | Admin | KOD-only bloğunu değiştirir |
 
@@ -220,7 +222,7 @@ Blok 4,200,000'den sonra (~4 yıl):
 | Özellik | Değer |
 |---------|-------|
 | **Algoritma** | SHA3-256 |
-| **Blok Süresi** | 30 saniye |
+| **Blok Süresi** | 6 saniye |
 | **Zorluk Ayarı** | Dinamik (her blokta) |
 | **Konsensus** | Proof of Work |
 | **Miner = Full Node** | ✅ |

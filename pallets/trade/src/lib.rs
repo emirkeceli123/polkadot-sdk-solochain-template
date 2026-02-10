@@ -39,6 +39,7 @@ pub mod pallet {
     };
     use frame_system::pallet_prelude::*;
     use sp_runtime::traits::Saturating;
+    use sp_runtime::SaturatedConversion;
     use sp_io::hashing::blake2_256;
 
     // ============================================
@@ -128,6 +129,10 @@ pub mod pallet {
         PendingSellerConfirm,
         /// Escrow'da bekliyor (satıcı kabul etti, para kilitli, teslimat bekleniyor)
         Escrow,
+        /// TL havale bekleniyor (satıcı kabul etti, alıcı TL gönderecek)
+        AwaitingPayment,
+        /// Alıcı TL gönderdiğini bildirdi (satıcı onayı bekleniyor)
+        PaymentSent,
         /// Tamamlandı - ödeme yapıldı
         Completed,
         /// Anlaşmazlık var
@@ -136,13 +141,58 @@ pub mod pallet {
         Refunded,
     }
 
+    // ============================================
+    // SÖZLEŞME MADDE ŞABLONLARİ
+    // ============================================
+
+    /// Maksimum sözleşme maddesi sayısı
+    pub const MAX_CONTRACT_CLAUSES: u32 = 20;
+
+    /// Sözleşme madde tipi (hazır şablonlar)
+    /// Her madde tipi, mobil uygulamada sabit bir metin şablonuna karşılık gelir.
+    /// Parametreler (IBAN, tutar vs.) off-chain'de saklanır, on-chain'de sadece hash bulunur.
+    #[derive(Clone, Encode, Decode, DecodeWithMemTracking, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+    pub enum ClauseType {
+        /// "Ürün borçlarından arındırılmış şekilde satılacaktır"
+        DebtFree,
+        /// "{iban} hesabına {tutar} TL geldiğinde sahiplik devredilecektir"
+        PaymentTransfer,
+        /// "Cihaz fabrika ayarlarına döndürülmüş olacaktır"
+        FactoryReset,
+        /// "Tüm hesaplardan (iCloud/Google/vb.) çıkış yapılmış olacaktır"
+        AccountLogout,
+        /// "Garanti belgesi devredilecektir"
+        WarrantyTransfer,
+        /// "İade kabul edilmemektedir"
+        NoReturn,
+        /// "Ürün hasarsız teslim edilecektir"
+        NoDamage,
+        /// "Orijinal aksesuar ve kutusu ile teslim edilecektir"
+        OriginalAccessories,
+        /// Serbest metin maddesi (kullanıcı yazar, hash saklanır)
+        Custom,
+    }
+
+    /// Bir sözleşme maddesi (seçilmiş şablon + parametre hash'i)
+    /// 
+    /// `params_hash` = blake2(parametre_json). Gizli veriler (IBAN, tutar, serbest metin)
+    /// sadece şifrelenmiş sözleşmede yer alır, on-chain'de sadece hash bulunur.
+    #[derive(Clone, Encode, Decode, DecodeWithMemTracking, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+    pub struct ContractClause {
+        /// Madde tipi (şablon)
+        pub clause_type: ClauseType,
+        /// Parametre hash'i (gizli veriler: IBAN, tutar, serbest metin vs.)
+        /// blake2_256(parametre_json_bytes)
+        pub params_hash: [u8; 32],
+    }
+
     /// İlan bilgisi
     #[derive(Clone, Encode, Decode, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
     #[scale_info(skip_type_params(T))]
     pub struct Listing<T: Config> {
         /// Satıcı adresi
         pub seller: T::AccountId,
-        /// Fiyat (KOD cinsinden)
+        /// Fiyat (KOD cinsinden) - TL ticaretlerde KOD teminat miktarını temsil eder
         pub price: BalanceOf<T>,
         /// Satıcı teminatı
         pub bond: BalanceOf<T>,
@@ -155,6 +205,15 @@ pub mod pallet {
         pub device_attestation_hash: Option<[u8; 32]>,
         /// External ödeme kabul edilir mi? (true = ETH/BTC/USDT kabul, false = sadece KOD)
         pub accepts_external: bool,
+        /// Sözleşme madde tipleri (ilanda hangi maddeler geçerli)
+        /// Alıcı ilan sayfasında hangi şablonların uygulandığını görebilir
+        pub clause_types: BoundedVec<ClauseType, ConstU32<MAX_CONTRACT_CLAUSES>>,
+        /// TL fiyatı (kuruş cinsinden, 15000000 = 150.000 TL)
+        /// 0 ise KOD-only ticaret (TL yok)
+        pub tl_price: u64,
+        /// Satıcı IBAN hash'i (blake2_256(iban_string))
+        /// TL ticaretlerinde zorunlu, KOD ticaretlerinde None
+        pub seller_iban_hash: Option<[u8; 32]>,
         /// Durum
         pub status: ListingStatus,
         /// Oluşturulma bloğu
@@ -171,12 +230,18 @@ pub mod pallet {
         pub buyer: T::AccountId,
         /// Satıcı adresi
         pub seller: T::AccountId,
-        /// Fiyat
+        /// Fiyat (KOD cinsinden)
         pub price: BalanceOf<T>,
         /// Alıcı teminatı
         pub buyer_bond: BalanceOf<T>,
         /// Satıcı teminatı
         pub seller_bond: BalanceOf<T>,
+        /// TL fiyatı (kuruş cinsinden, 0 = KOD-only ticaret)
+        pub tl_price: u64,
+        /// Satıcı IBAN hash'i
+        pub seller_iban_hash: Option<[u8; 32]>,
+        /// Alıcı IBAN hash'i
+        pub buyer_iban_hash: Option<[u8; 32]>,
         /// Anlaşma hash'i (conditions_root + "accepted" + timestamp)
         pub contract_hash: [u8; 32],
         /// Teslimat cihaz attestation hash'i (buluşmada alınan, tam veri off-chain)
@@ -252,6 +317,17 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn kod_only_block_override)]
     pub type KodOnlyBlockOverride<T: Config> = StorageValue<_, BlockNumberFor<T>, OptionQuery>;
+
+    /// KOD/TL varsayılan kur (100 = 1 KOD = 1 TL)
+    #[pallet::type_value]
+    pub fn DefaultKodTlRate() -> u64 { 100 }
+
+    /// KOD/TL kuru (kuruş cinsinden, 100 = 1 KOD = 1 TL)
+    /// Örnek: 100 = 1 KOD = 1 TL, 1000 = 1 KOD = 10 TL
+    /// Varsayılan: 100 (1:1). Sudo ile değiştirilebilir.
+    #[pallet::storage]
+    #[pallet::getter(fn kod_tl_rate)]
+    pub type KodTlRate<T: Config> = StorageValue<_, u64, ValueQuery, DefaultKodTlRate>;
 
     /// Ticaret durdu mu? (acil durum için)
     #[pallet::storage]
@@ -329,6 +405,18 @@ pub mod pallet {
         Blake2_128Concat, u64,           // trade_id
         Blake2_128Concat, T::AccountId,  // taraf adresi
         BoundedVec<u8, ConstU32<256>>,   // şifreli simetrik anahtar
+    >;
+
+    /// Sözleşme maddeleri: trade_id -> Vec<ContractClause>
+    /// Her madde bir şablon tipi + parametre hash'i içerir.
+    /// Madde tipleri public (herkes görebilir), parametreler gizli (şifreli sözleşmede).
+    #[pallet::storage]
+    #[pallet::getter(fn contract_clauses)]
+    pub type ContractClauses<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        u64, // trade_id
+        BoundedVec<ContractClause, ConstU32<MAX_CONTRACT_CLAUSES>>,
     >;
 
     // ============================================
@@ -472,6 +560,31 @@ pub mod pallet {
             contract_size: u32,
             parties_count: u32,
         },
+
+        /// Sözleşme maddeleri blockchain'e yazıldı
+        ContractClausesAdded {
+            trade_id: u64,
+            clause_count: u32,
+        },
+
+        /// KOD/TL kuru güncellendi (sudo)
+        KodTlRateUpdated {
+            old_rate: u64,
+            new_rate: u64,
+        },
+
+        /// Alıcı TL havalesini yaptığını bildirdi
+        PaymentMarkedAsSent {
+            trade_id: u64,
+            buyer: T::AccountId,
+        },
+
+        /// Satıcı TL ödemesini onayladı, ticaret tamamlandı
+        TlPaymentConfirmed {
+            trade_id: u64,
+            seller: T::AccountId,
+            tl_price: u64,
+        },
     }
 
     // ============================================
@@ -532,6 +645,22 @@ pub mod pallet {
         ContractDataTooLarge,
         /// Şifreleme anahtarı çok büyük
         EncryptionKeyTooLarge,
+        /// Çok fazla sözleşme maddesi (max 20)
+        TooManyClauses,
+        /// TL ticaretlerinde IBAN hash zorunludur
+        IbanHashRequired,
+        /// TL fiyatı sıfırdan büyük olmalı (TL ticareti için)
+        InvalidTlPrice,
+        /// Ticaret TL havale beklemiyor
+        NotAwaitingPayment,
+        /// Ticaret TL ödemesi beklemiyor (PaymentSent veya AwaitingPayment değil)
+        NotAwaitingOrPaymentSent,
+        /// Geçersiz KOD/TL kuru (sıfır olamaz)
+        InvalidRate,
+        /// Bu işlem sadece KOD ticaretleri için geçerlidir
+        NotKodTrade,
+        /// Bu işlem sadece TL ticaretleri için geçerlidir
+        NotTlTrade,
     }
 
     // ============================================
@@ -634,6 +763,16 @@ pub mod pallet {
             blake2_256(&combined)
         }
 
+        /// TL fiyatından KOD teminat hesapla
+        /// bond_kod = tl_price_kurus / kod_tl_rate_kurus * BOND_PERCENT / 100
+        /// Varsayılan: %10 teminat
+        pub fn calculate_bond_from_tl(tl_price_kurus: u64) -> BalanceOf<T> {
+            let rate = <KodTlRate<T>>::get().max(1); // sıfıra bölme engelle
+            let tl_as_kod = tl_price_kurus / rate;   // KOD karşılığı
+            let bond = tl_as_kod * 10 / 100;         // %10 teminat
+            bond.saturated_into()
+        }
+
         /// Merkle proof doğrulama (hash zaten hesaplanmış)
         /// 
         /// - `root`: Beklenen Merkle root
@@ -672,14 +811,17 @@ pub mod pallet {
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        /// Yeni ilan oluştur (Merkle proof + Cihaz Attestation destekli)
+        /// Yeni ilan oluştur (Merkle proof + Cihaz Attestation + Sözleşme Maddeleri + TL Fiyat destekli)
         /// 
-        /// - `price`: Satış fiyatı (KOD cinsinden)
-        /// - `bond`: Satıcı teminatı (kilitlenecek)
+        /// - `price`: Satış fiyatı (KOD cinsinden) - TL ticaretinde otomatik hesaplanır ama yine de verilir
+        /// - `bond`: Satıcı teminatı (kilitlenecek) - TL ticaretinde otomatik hesaplanır
         /// - `conditions_root`: Koşulların Merkle root'u
         /// - `ipfs_cid_hash`: Detaylı koşullar için IPFS CID hash'i (opsiyonel)
         /// - `device_attestation_hash`: Cihaz attestation hash'i (opsiyonel, tam veri off-chain)
         /// - `accepts_external`: External ödeme kabul eder mi?
+        /// - `clause_types`: Sözleşme madde tipleri (ilanda hangi şablonlar geçerli)
+        /// - `tl_price`: TL fiyatı kuruş cinsinden (0 = KOD-only ticaret)
+        /// - `seller_iban_hash`: Satıcı IBAN hash'i (TL ticaretlerinde zorunlu)
         #[pallet::call_index(0)]
         #[pallet::weight(10_000)]
         pub fn create_listing(
@@ -690,6 +832,9 @@ pub mod pallet {
             ipfs_cid_hash: Option<[u8; 32]>,
             device_attestation_hash: Option<[u8; 32]>,
             accepts_external: bool,
+            clause_types: BoundedVec<ClauseType, ConstU32<MAX_CONTRACT_CLAUSES>>,
+            tl_price: u64,
+            seller_iban_hash: Option<[u8; 32]>,
         ) -> DispatchResult {
             // Ticaret durdurulmuş mu?
             ensure!(!<TradingPaused<T>>::get(), Error::<T>::TradingIsPaused);
@@ -702,29 +847,49 @@ pub mod pallet {
                 return Err(Error::<T>::KodOnlyModeActive.into());
             }
 
-            // 3. Teminat yeterli mi?
-            ensure!(bond >= T::MinBond::get(), Error::<T>::InsufficientBond);
+            // 3. TL ticareti kontrolleri
+            let is_tl_trade = tl_price > 0;
+            let effective_bond;
+
+            if is_tl_trade {
+                // TL ticaretinde IBAN hash zorunlu
+                ensure!(seller_iban_hash.is_some(), Error::<T>::IbanHashRequired);
+
+                // Bond otomatik hesapla: tl_price * %10 / kod_tl_rate
+                effective_bond = Self::calculate_bond_from_tl(tl_price);
+                ensure!(effective_bond >= T::MinBond::get(), Error::<T>::InsufficientBond);
+            } else {
+                // KOD ticareti - kullanıcının verdiği bond'u kullan
+                effective_bond = bond;
+                ensure!(effective_bond >= T::MinBond::get(), Error::<T>::InsufficientBond);
+            }
 
             // 4. Kullanıcının çok fazla ilanı var mı?
             let count = UserListingCount::<T>::get(&seller);
             ensure!(count < T::MaxListingsPerUser::get(), Error::<T>::TooManyListings);
 
             // 5. Teminatı kilitle (reserve)
-            T::Currency::reserve(&seller, bond)?;
+            T::Currency::reserve(&seller, effective_bond)?;
 
             // 6. Yeni ilan ID al
             let listing_id = NextListingId::<T>::get();
             NextListingId::<T>::put(listing_id + 1);
 
             // 7. İlanı kaydet
+            // TL ticaretinde price alanı bond miktarını saklar
+            let effective_price = if is_tl_trade { effective_bond } else { price };
+
             let listing = Listing {
                 seller: seller.clone(),
-                price,
-                bond,
+                price: effective_price,
+                bond: effective_bond,
                 conditions_root,
                 ipfs_cid_hash,
                 device_attestation_hash,
                 accepts_external,
+                clause_types,
+                tl_price,
+                seller_iban_hash,
                 status: ListingStatus::Active,
                 created_at: frame_system::Pallet::<T>::block_number(),
             };
@@ -737,7 +902,7 @@ pub mod pallet {
             Self::deposit_event(Event::ListingCreated {
                 listing_id,
                 seller: seller.clone(),
-                price,
+                price: effective_price,
                 accepts_external,
             });
 
@@ -787,13 +952,17 @@ pub mod pallet {
         }
 
         /// Satın al - ödeme escrow'a gider
-        /// Alıcı koşulları kabul ettiğinde contract_hash oluşturulur
+        /// TL ticaretlerinde sadece KOD teminat kilitlenir (ürün fiyatı TL ile off-chain ödenir)
+        /// KOD ticaretlerinde fiyat + teminat kilitlenir (mevcut davranış)
+        /// 
+        /// - `buyer_iban_hash`: Alıcı IBAN hash'i (TL ticaretlerinde zorunlu, KOD'da opsiyonel)
         #[pallet::call_index(2)]
         #[pallet::weight(10_000)]
         pub fn purchase(
             origin: OriginFor<T>,
             listing_id: u64,
             buyer_bond: BalanceOf<T>,
+            buyer_iban_hash: Option<[u8; 32]>,
         ) -> DispatchResult {
             // Ticaret durdurulmuş mu?
             ensure!(!<TradingPaused<T>>::get(), Error::<T>::TradingIsPaused);
@@ -815,8 +984,22 @@ pub mod pallet {
             // Kendi ilanını alamaz
             ensure!(listing.seller != buyer, Error::<T>::CannotBuyOwnListing);
 
-            // Alıcının yeterli parası var mı? (fiyat + teminat)
-            let total_needed = listing.price + buyer_bond;
+            let is_tl_trade = listing.tl_price > 0;
+
+            // TL ticaretinde alıcı IBAN hash zorunlu
+            if is_tl_trade {
+                ensure!(buyer_iban_hash.is_some(), Error::<T>::IbanHashRequired);
+            }
+
+            // TL ticaretinde sadece bond kilitlenir, KOD ticaretinde fiyat + bond
+            let total_needed = if is_tl_trade {
+                // TL ticareti: sadece KOD teminat (fiyat TL olarak off-chain ödenir)
+                buyer_bond
+            } else {
+                // KOD ticareti: fiyat + teminat
+                listing.price + buyer_bond
+            };
+
             ensure!(
                 T::Currency::free_balance(&buyer) >= total_needed,
                 Error::<T>::InsufficientBalance
@@ -830,7 +1013,6 @@ pub mod pallet {
             NextTradeId::<T>::put(trade_id + 1);
 
             // Contract hash hesapla (alıcı koşulları kabul ettiğini kanıtlar)
-            // Timestamp için blok numarasını kullanıyoruz (offchain erişim yok)
             let current_block = frame_system::Pallet::<T>::block_number();
             let current_timestamp: u64 = current_block.try_into().unwrap_or(0);
             let contract_hash = Self::compute_contract_hash(
@@ -846,6 +1028,9 @@ pub mod pallet {
                 price: listing.price,
                 buyer_bond,
                 seller_bond: listing.bond,
+                tl_price: listing.tl_price,
+                seller_iban_hash: listing.seller_iban_hash,
+                buyer_iban_hash,
                 contract_hash,
                 delivery_attestation_hash: None,
                 final_hash: None,
@@ -873,6 +1058,7 @@ pub mod pallet {
         /// PendingSellerConfirm -> Escrow durumuna geçirir
         /// Taraflar ve şartlar blockchain'e yazılır
         /// Şifreli sözleşme (opsiyonel) da blockchain'e kaydedilir
+        /// Sözleşme maddeleri (opsiyonel) de blockchain'e yazılır
         #[pallet::call_index(10)]
         #[pallet::weight(50_000)]
         pub fn accept_trade(
@@ -881,6 +1067,7 @@ pub mod pallet {
             encrypted_contract: Option<BoundedVec<u8, ConstU32<8192>>>,
             buyer_enc_key: Option<BoundedVec<u8, ConstU32<256>>>,
             seller_enc_key: Option<BoundedVec<u8, ConstU32<256>>>,
+            clauses: Option<BoundedVec<ContractClause, ConstU32<MAX_CONTRACT_CLAUSES>>>,
         ) -> DispatchResult {
             let seller = ensure_signed(origin)?;
 
@@ -924,8 +1111,23 @@ pub mod pallet {
                 });
             }
 
-            // Durumu Escrow'a geçir
-            trade.status = TradeStatus::Escrow;
+            // Sözleşme maddeleri varsa kaydet
+            if let Some(ref clause_list) = clauses {
+                let clause_count = clause_list.len() as u32;
+                <ContractClauses<T>>::insert(trade_id, clause_list);
+
+                Self::deposit_event(Event::ContractClausesAdded {
+                    trade_id,
+                    clause_count,
+                });
+            }
+
+            // TL ticaretlerinde AwaitingPayment, KOD ticaretlerinde Escrow
+            if trade.tl_price > 0 {
+                trade.status = TradeStatus::AwaitingPayment;
+            } else {
+                trade.status = TradeStatus::Escrow;
+            }
             Trades::<T>::insert(trade_id, trade.clone());
 
             let now = frame_system::Pallet::<T>::block_number();
@@ -966,9 +1168,13 @@ pub mod pallet {
                 Error::<T>::NotPendingSellerConfirm
             );
 
-            // Alıcıya ödemeyi iade et (fiyat + alıcı teminatı)
-            // purchase'da reserve ile kilitlenmişti, unreserve ile geri ver
-            let refund_amount = trade.price.saturating_add(trade.buyer_bond);
+            // Alıcıya ödemeyi iade et
+            // TL ticaretinde sadece bond kilitlenmişti, KOD ticaretinde fiyat + bond
+            let refund_amount = if trade.tl_price > 0 {
+                trade.buyer_bond
+            } else {
+                trade.price.saturating_add(trade.buyer_bond)
+            };
             T::Currency::unreserve(&trade.buyer, refund_amount);
 
             // Trade durumunu güncelle
@@ -1099,8 +1305,13 @@ pub mod pallet {
                 Error::<T>::NotAuthorized
             );
 
-            // Escrow durumunda mı?
-            ensure!(trade.status == TradeStatus::Escrow, Error::<T>::InvalidStatus);
+            // Escrow, AwaitingPayment veya PaymentSent durumunda mı?
+            ensure!(
+                trade.status == TradeStatus::Escrow
+                || trade.status == TradeStatus::AwaitingPayment
+                || trade.status == TradeStatus::PaymentSent,
+                Error::<T>::InvalidStatus
+            );
 
             // Durumu güncelle
             trade.status = TradeStatus::Disputed;
@@ -1430,6 +1641,133 @@ pub mod pallet {
             <TradingPaused<T>>::put(paused);
 
             Self::deposit_event(Event::TradingPausedChanged { paused });
+
+            Ok(())
+        }
+
+        // ============================================
+        // TL ÖDEME EXTRINSİC'LERİ
+        // ============================================
+
+        /// KOD/TL kurunu ayarla (sudo only)
+        /// rate_kurus: kuruş cinsinden (100 = 1 KOD = 1 TL)
+        #[pallet::call_index(12)]
+        #[pallet::weight(10_000)]
+        pub fn set_kod_tl_rate(
+            origin: OriginFor<T>,
+            rate_kurus: u64,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+
+            // Kur sıfır olamaz
+            ensure!(rate_kurus > 0, Error::<T>::InvalidRate);
+
+            let old_rate = <KodTlRate<T>>::get();
+            <KodTlRate<T>>::put(rate_kurus);
+
+            Self::deposit_event(Event::KodTlRateUpdated {
+                old_rate,
+                new_rate: rate_kurus,
+            });
+
+            Ok(())
+        }
+
+        /// Alıcı TL havalesini yaptığını bildirir
+        /// AwaitingPayment -> PaymentSent
+        #[pallet::call_index(13)]
+        #[pallet::weight(10_000)]
+        pub fn mark_payment_sent(
+            origin: OriginFor<T>,
+            trade_id: u64,
+        ) -> DispatchResult {
+            let buyer = ensure_signed(origin)?;
+
+            // Trade'i bul
+            let mut trade = Trades::<T>::get(trade_id)
+                .ok_or(Error::<T>::TradeNotFound)?;
+
+            // Sadece alıcı çağırabilir
+            ensure!(trade.buyer == buyer, Error::<T>::NotAuthorized);
+
+            // TL ticareti mi?
+            ensure!(trade.tl_price > 0, Error::<T>::NotTlTrade);
+
+            // AwaitingPayment durumunda mı?
+            ensure!(
+                trade.status == TradeStatus::AwaitingPayment,
+                Error::<T>::NotAwaitingPayment
+            );
+
+            // Durumu güncelle
+            trade.status = TradeStatus::PaymentSent;
+            Trades::<T>::insert(trade_id, trade);
+
+            Self::deposit_event(Event::PaymentMarkedAsSent {
+                trade_id,
+                buyer,
+            });
+
+            Ok(())
+        }
+
+        /// Satıcı TL ödemesinin banka hesabına geldiğini onaylar
+        /// PaymentSent veya AwaitingPayment -> Completed
+        /// Her iki tarafın KOD teminatı iade edilir
+        #[pallet::call_index(14)]
+        #[pallet::weight(10_000)]
+        pub fn confirm_tl_payment(
+            origin: OriginFor<T>,
+            trade_id: u64,
+        ) -> DispatchResult {
+            let seller = ensure_signed(origin)?;
+
+            // Trade'i bul
+            let mut trade = Trades::<T>::get(trade_id)
+                .ok_or(Error::<T>::TradeNotFound)?;
+
+            // Sadece satıcı çağırabilir
+            ensure!(trade.seller == seller, Error::<T>::NotAuthorized);
+
+            // TL ticareti mi?
+            ensure!(trade.tl_price > 0, Error::<T>::NotTlTrade);
+
+            // PaymentSent veya AwaitingPayment durumunda mı?
+            ensure!(
+                trade.status == TradeStatus::PaymentSent
+                || trade.status == TradeStatus::AwaitingPayment,
+                Error::<T>::NotAwaitingOrPaymentSent
+            );
+
+            // Alıcının KOD teminatını iade et (TL ticaretinde sadece bond kilitlenmişti)
+            T::Currency::unreserve(&trade.buyer, trade.buyer_bond);
+
+            // Satıcının KOD teminatını iade et
+            T::Currency::unreserve(&trade.seller, trade.seller_bond);
+
+            // Durumu tamamlandı yap
+            trade.status = TradeStatus::Completed;
+            Trades::<T>::insert(trade_id, trade.clone());
+
+            // İlanı tamamlandı olarak işaretle
+            if let Some(mut listing) = Listings::<T>::get(trade.listing_id) {
+                listing.status = ListingStatus::Completed;
+                Listings::<T>::insert(trade.listing_id, listing);
+            }
+
+            // Kullanıcı ilan sayısını azalt
+            UserListingCount::<T>::mutate(&trade.seller, |count| *count = count.saturating_sub(1));
+
+            // İstatistikleri güncelle
+            <TotalTradesCompleted<T>>::mutate(|n| *n = n.saturating_add(1));
+            // TL ticaretlerinde volume'u bond (KOD) miktarı olarak say
+            <TotalVolume<T>>::mutate(|v| *v = v.saturating_add(trade.price));
+
+            Self::deposit_event(Event::TlPaymentConfirmed {
+                trade_id,
+                seller,
+                tl_price: trade.tl_price,
+            });
 
             Ok(())
         }

@@ -153,7 +153,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: alloc::borrow::Cow::Borrowed("kod-chain"),
     impl_name: alloc::borrow::Cow::Borrowed("kod-chain"),
     authoring_version: 1,
-    spec_version: 201,  // Bumped for 6s block time
+    spec_version: 203,  // Bumped for TL payment integration
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
     transaction_version: 1,

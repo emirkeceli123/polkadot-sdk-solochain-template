@@ -254,6 +254,40 @@ Alice ve Bob buluşuyor (yüz yüze)
 
 ---
 
+## 🏦 TL Ödeme Akışı
+
+Fiyat **TL**, ödeme **banka havalesi** ile yapılır; blockchain'de sadece **KOD teminatı** (%10) kilitlenir. IBAN'lar off-chain paylaşılır, on-chain sadece **IBAN hash** saklanır.
+
+### Akış Özeti
+
+```
+Satıcı: create_listing(tl_price=15000000, seller_iban_hash)  → Bond = TL değerin %10'u (KOD)
+Alıcı:  purchase(listing_id, buyer_bond, buyer_iban_hash)    → Sadece bond kilitlenir
+Satıcı: accept_trade(...)                                     → Durum: AwaitingPayment
+Alıcı:  Banka havalesi (off-chain) → mark_payment_sent()     → Durum: PaymentSent
+Satıcı: confirm_tl_payment()                                  → Tamamlandı, teminatlar iade
+```
+
+### On-Chain Veriler
+
+| Veri | Açıklama |
+|------|----------|
+| `tl_price` | TL fiyat (kuruş; 15000000 = 150.000 TL) |
+| `seller_iban_hash` | blake2(IBAN) – ilan/trade'de |
+| `buyer_iban_hash` | blake2(IBAN) – trade'de |
+| `KodTlRate` | KOD/TL kuru (kuruş; 100 = 1 KOD = 1 TL), sudo ile güncellenir |
+
+### Yeni Trade Durumları
+
+| Durum | Açıklama |
+|-------|----------|
+| `AwaitingPayment` | Satıcı kabul etti; alıcı TL havale yapacak |
+| `PaymentSent` | Alıcı havaleyi yaptığını bildirdi; satıcı onayı bekleniyor |
+
+Anlaşmazlıkta alıcı banka dekontu ile kanıt sunar; hakem `resolve_dispute` ile karar verir.
+
+---
+
 ## ⚖️ Anlaşmazlık Durumu
 
 ### Senaryo: Batarya Sorunu

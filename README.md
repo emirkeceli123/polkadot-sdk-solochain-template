@@ -51,9 +51,9 @@ chmod +x kod-node
 | Parametre | Değer |
 |-----------|-------|
 | **Toplam Arz** | 1,000,000,000 KOD |
-| **Blok Ödülü** | 250 KOD |
-| **Blok Süresi** | 30 saniye |
-| **Halving** | Her 2.1M blok (~2 yıl) |
+| **Blok Ödülü** | 50 KOD |
+| **Blok Süresi** | 6 saniye |
+| **Halving** | Her 10.5M blok (~2 yıl) |
 | **Algoritma** | SHA3-256 |
 
 ### Dağılım
@@ -70,7 +70,7 @@ Geliştirme:        100,000,000 KOD (%10)
 Güvenli ticaret için yerleşik escrow sistemi:
 
 ```
-Satıcı → İlan Ver → Alıcı Satın Al → Satıcı Kabul → Escrow → Test → QR → Teslimat → Ödeme
+Satıcı → İlan Ver → Alıcı Satın Al → Satıcı Kabul → Escrow / TL Havale Bekleme → Teslimat veya TL Onay → Ödeme
                                                        ↓
                                                   Anlaşmazlık? → Hakem Kararı (BC kanıtları ile)
 ```
@@ -79,12 +79,13 @@ Satıcı → İlan Ver → Alıcı Satın Al → Satıcı Kabul → Escrow → T
 
 - ✅ İlan oluşturma/iptal
 - ✅ Escrow ile satın alma
+- ✅ **TL ödeme desteği** – Fiyat TL, ödeme havale; KOD sadece teminat (%10)
 - ✅ **Satıcı kabul/red sistemi (PendingSellerConfirm)**
-- ✅ Teslimat onayı
+- ✅ Teslimat onayı (KOD) veya TL ödeme onayı (confirm_tl_payment)
 - ✅ **Cihaz tanılama raporu (submit_diagnostics)** - on-chain test sonuçları
 - ✅ Anlaşmazlık çözümü (blockchain kanıtları ile)
 - ✅ Teminat sistemi
-- ✅ KOD-only modu (4 yıl sonra)
+- ✅ KOD-only modu (blok 21M sonrası ~4 yıl)
 
 ---
 
@@ -156,6 +157,20 @@ Detaylar için: [kod-mobile/README.md](../kod-mobile/README.md)
 ---
 
 ## 📝 Changelog
+
+### v6.0.0 - TL Ödeme + 6sn Blok + Mobil TL Akışı (2026-02)
+
+**Blockchain:**
+- ✅ **Blok süresi 6 saniye** (ekonomi aynı: 50 KOD/blok, halving 10.5M, KOD-only 21M)
+- ✅ **TL ödeme entegrasyonu:** Fiyat TL (kuruş), KOD teminat %10; IBAN hash on-chain
+- ✅ Yeni extrinsic'ler: `set_kod_tl_rate`, `mark_payment_sent`, `confirm_tl_payment`
+- ✅ Yeni trade durumları: `AwaitingPayment`, `PaymentSent`
+- ✅ Sözleşme maddeleri (ClauseType + ContractClause) – önceden eklendi
+
+**Mobil (kod-mobile):**
+- ✅ Satış ekranında TL/KOD seçimi, TL fiyat + IBAN girişi
+- ✅ İlan detayda TL fiyat gösterimi, alıcı IBAN girişi
+- ✅ Ticaret detayda TL akışı: "Ödeme gönderildi", "TL ödeme onayla"
 
 ### 2026-02-07 - Trade Pallet v2.0 + Mobile v1.1
 
