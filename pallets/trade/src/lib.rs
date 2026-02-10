@@ -23,7 +23,7 @@
 //! 5. Anlaşmazlıkta Merkle proof ile kanıt sunulur
 //!
 //! ## KOD-Only Modu
-//! Blok 4,200,000'den sonra (~4 yıl) sadece KOD ile ticaret yapılabilir.
+//! Blok 21,000,000'den sonra (~4 yıl) sadece KOD ile ticaret yapılabilir.
 
 // Standart kütüphane yok (WASM için gerekli)
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -213,7 +213,7 @@ pub mod pallet {
         #[pallet::constant]
         type MaxListingsPerUser: Get<u32>;
 
-        /// KOD-only başlangıç bloğu (default ~4 yıl = 4,200,000)
+        /// KOD-only başlangıç bloğu (default ~4 yıl = 21,000,000 at 6s/block)
         #[pallet::constant]
         type KodOnlyBlock: Get<BlockNumberFor<Self>>;
     }

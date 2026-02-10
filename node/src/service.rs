@@ -2,7 +2,7 @@
 //!
 //! This module sets up the PoW consensus and mining infrastructure.
 //! Features:
-//! - 30 second target block time
+//! - 6 second target block time
 //! - Dynamic difficulty adjustment (every 10 blocks)
 //! - SHA3-256 Proof of Work
 
@@ -22,7 +22,7 @@ use parking_lot::RwLock;
 // ============================================================================
 
 /// Target block time in seconds
-const TARGET_BLOCK_TIME_SECS: u64 = 30;
+const TARGET_BLOCK_TIME_SECS: u64 = 6;
 
 /// Number of blocks between difficulty adjustments
 const DIFFICULTY_ADJUSTMENT_WINDOW: u64 = 10;

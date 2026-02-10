@@ -32,7 +32,7 @@ parameter_types! {
     pub const BlockHashCount: BlockNumber = 2400;
     pub const Version: RuntimeVersion = VERSION;
 
-    /// We allow for 2 seconds of compute with a 30 second average block time.
+    /// We allow for 2 seconds of compute with a 6 second average block time.
     pub RuntimeBlockWeights: BlockWeights = BlockWeights::with_sensible_defaults(
         Weight::from_parts(2u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX),
         NORMAL_DISPATCH_RATIO,
@@ -114,10 +114,10 @@ impl pallet_sudo::Config for Runtime {
 // ============================================================================
 
 parameter_types! {
-    /// Initial block reward: 250 KOD per block (halves every ~2 years)
+    /// Initial block reward: 50 KOD per block (halves every ~2 years)
     pub const RewardAmount: Balance = INITIAL_BLOCK_REWARD;
     
-    /// Halving interval: reward halves every 2,100,000 blocks
+    /// Halving interval: reward halves every 10,500,000 blocks (~2 years at 6s/block)
     pub const HalvingIntervalBlocks: BlockNumber = HALVING_INTERVAL;
     
     /// KOD-only trading starts after this block (~4 years)

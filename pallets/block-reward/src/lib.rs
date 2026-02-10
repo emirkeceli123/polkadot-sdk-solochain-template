@@ -1,24 +1,24 @@
 //! # Block Reward Pallet
 //!
 //! This pallet handles the distribution of mining rewards to block authors.
-//! Rewards follow a halving schedule, starting at 250 KOD and halving every ~2 years.
+//! Rewards follow a halving schedule, starting at 50 KOD and halving every ~2 years.
 //!
 //! ## Overview
 //!
 //! - Block rewards are paid from a "Mining Reserve" account funded at genesis
-//! - Initial reward: 250 KOD per block
-//! - Halving: Every 2,100,000 blocks (~2 years at 30s/block)
+//! - Initial reward: 50 KOD per block
+//! - Halving: Every 10,500,000 blocks (~2 years at 6s/block)
 //! - The miner's address is passed via inherent data from the node
 //! - Rewards stop when the Mining Reserve is depleted or after ~10 halvings
 //!
-//! ## Halving Schedule (at 30s blocks)
+//! ## Halving Schedule (at 6s blocks)
 //!
 //! | Era | Blocks | Reward | Total Mined | Cumulative |
 //! |-----|--------|--------|-------------|------------|
-//! | 1   | 0-2.1M | 250    | 525M        | 525M       |
-//! | 2   | 2.1M-4.2M | 125 | 262.5M      | 787.5M     |
-//! | 3   | 4.2M-6.3M | 62  | 130.2M      | 917.7M     |
-//! | 4   | 6.3M-8.4M | 31  | 65.1M       | 982.8M     |
+//! | 1   | 0-10.5M | 50    | 525M        | 525M       |
+//! | 2   | 10.5M-21M | 25  | 262.5M      | 787.5M     |
+//! | 3   | 21M-31.5M | 12  | 126M        | 913.5M     |
+//! | 4   | 31.5M-42M | 6   | 63M         | 976.5M     |
 //! | ... | ...    | ...    | ...         | ~1B        |
 
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -67,12 +67,12 @@ pub mod pallet {
         /// The currency mechanism for rewards.
         type Currency: Currency<Self::AccountId>;
 
-        /// Initial block reward (250 KOD = 250 * 10^18 units).
+        /// Initial block reward (50 KOD = 50 * 10^18 units).
         /// This value halves every HalvingInterval blocks.
         #[pallet::constant]
         type RewardAmount: Get<BalanceOf<Self>>;
 
-        /// Number of blocks between halvings (~2,100,000 for ~2 years at 30s/block)
+        /// Number of blocks between halvings (~10,500,000 for ~2 years at 6s/block)
         #[pallet::constant]
         type HalvingInterval: Get<BlockNumberFor<Self>>;
 
