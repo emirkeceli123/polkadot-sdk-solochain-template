@@ -153,7 +153,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: alloc::borrow::Cow::Borrowed("kod-chain"),
     impl_name: alloc::borrow::Cow::Borrowed("kod-chain"),
     authoring_version: 1,
-    spec_version: 204,  // Fix: resolve_dispute TL trade handling, bond calculation
+    spec_version: 205,  // Asset registry: ownership tracking on trade completion
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
     transaction_version: 1,

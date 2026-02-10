@@ -186,6 +186,69 @@ pub mod pallet {
         pub params_hash: [u8; 32],
     }
 
+    // ============================================
+    // VARLIK SİCİLİ (ASSET REGISTRY)
+    // ============================================
+
+    /// Maksimum sahiplik geçmişi kaydı
+    pub const MAX_OWNERSHIP_HISTORY: u32 = 100;
+
+    /// Varlık (ürün) bilgisi — on-chain sicil
+    #[derive(Clone, Encode, Decode, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+    #[scale_info(skip_type_params(T))]
+    pub struct Asset<T: Config> {
+        /// İlk kayıt eden (orijinal satıcı)
+        pub original_owner: T::AccountId,
+        /// Şu anki sahip
+        pub current_owner: T::AccountId,
+        /// Ürünü tanımlayan hash (seri no, IMEI, cihaz attestation vs.)
+        /// blake2_256(device_attestation_hash || conditions_root)
+        pub asset_hash: [u8; 32],
+        /// Cihaz attestation hash'i (varsa)
+        pub device_attestation_hash: Option<[u8; 32]>,
+        /// İlk ilan ID'si (asset'in oluşturulduğu ilan)
+        pub origin_listing_id: u64,
+        /// Toplam el değiştirme sayısı
+        pub transfer_count: u32,
+        /// İlk kayıt bloğu
+        pub created_at: BlockNumberFor<T>,
+        /// Son sahiplik değişikliği bloğu
+        pub last_transfer_at: BlockNumberFor<T>,
+    }
+
+    /// Sahiplik değişikliği kaydı
+    #[derive(Clone, Encode, Decode, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+    #[scale_info(skip_type_params(T))]
+    pub struct OwnershipRecord<T: Config> {
+        /// Önceki sahip
+        pub from: T::AccountId,
+        /// Yeni sahip
+        pub to: T::AccountId,
+        /// Hangi ticaretle geçti
+        pub trade_id: u64,
+        /// İlgili ilan ID'si
+        pub listing_id: u64,
+        /// Transfer bloğu
+        pub block_number: BlockNumberFor<T>,
+        /// Transfer türü
+        pub transfer_type: TransferType,
+        /// Ticaret fiyatı (KOD cinsinden, TL trade'de 0)
+        pub price: BalanceOf<T>,
+        /// TL fiyatı (kuruş, 0 ise KOD ticareti)
+        pub tl_price: u64,
+    }
+
+    /// Sahiplik transfer türü
+    #[derive(Clone, Encode, Decode, DecodeWithMemTracking, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+    pub enum TransferType {
+        /// Normal satış tamamlandı
+        Sale,
+        /// TL ödemesi ile satış tamamlandı
+        TlSale,
+        /// Anlaşmazlık sonucu alıcıya verildi
+        DisputeResolution,
+    }
+
     /// İlan bilgisi
     #[derive(Clone, Encode, Decode, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
     #[scale_info(skip_type_params(T))]
@@ -218,6 +281,8 @@ pub mod pallet {
         pub status: ListingStatus,
         /// Oluşturulma bloğu
         pub created_at: BlockNumberFor<T>,
+        /// Bağlı varlık (asset) ID'si — sahiplik sicili için
+        pub asset_id: u64,
     }
 
     /// Ticaret bilgisi
@@ -420,6 +485,48 @@ pub mod pallet {
     >;
 
     // ============================================
+    // VARLIK SİCİLİ STORAGE
+    // ============================================
+
+    /// Sonraki varlık ID'si
+    #[pallet::storage]
+    #[pallet::getter(fn next_asset_id)]
+    pub type NextAssetId<T> = StorageValue<_, u64, ValueQuery>;
+
+    /// Varlıklar (ürün sicili): asset_id -> Asset
+    #[pallet::storage]
+    #[pallet::getter(fn assets)]
+    pub type Assets<T: Config> = StorageMap<_, Blake2_128Concat, u64, Asset<T>>;
+
+    /// Varlık sahiplik geçmişi: asset_id -> Vec<OwnershipRecord>
+    /// Her el değiştirmede yeni kayıt eklenir
+    #[pallet::storage]
+    #[pallet::getter(fn asset_ownership_history)]
+    pub type AssetOwnershipHistory<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        u64, // asset_id
+        BoundedVec<OwnershipRecord<T>, ConstU32<MAX_OWNERSHIP_HISTORY>>,
+    >;
+
+    /// Kullanıcının sahip olduğu varlık ID'leri: account -> Vec<asset_id>
+    #[pallet::storage]
+    #[pallet::getter(fn owner_assets)]
+    pub type OwnerAssets<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        BoundedVec<u64, ConstU32<1000>>,
+        ValueQuery,
+    >;
+
+    /// Varlık hash'inden asset_id'ye lookup: asset_hash -> asset_id
+    /// Aynı ürünün tekrar kaydedilmesini önler
+    #[pallet::storage]
+    #[pallet::getter(fn asset_by_hash)]
+    pub type AssetByHash<T: Config> = StorageMap<_, Blake2_128Concat, [u8; 32], u64>;
+
+    // ============================================
     // EVENTS (Blockchain'de yayınlanan olaylar)
     // ============================================
 
@@ -585,6 +692,23 @@ pub mod pallet {
             seller: T::AccountId,
             tl_price: u64,
         },
+
+        /// Yeni varlık (ürün) sicili oluşturuldu
+        AssetRegistered {
+            asset_id: u64,
+            owner: T::AccountId,
+            asset_hash: [u8; 32],
+            listing_id: u64,
+        },
+
+        /// Varlık sahipliği devredildi
+        OwnershipTransferred {
+            asset_id: u64,
+            from: T::AccountId,
+            to: T::AccountId,
+            trade_id: u64,
+            transfer_type: TransferType,
+        },
     }
 
     // ============================================
@@ -653,6 +777,12 @@ pub mod pallet {
         InvalidTlPrice,
         /// Ticaret TL havale beklemiyor
         NotAwaitingPayment,
+        /// Bu asset hash zaten kayıtlı (aynı ürün tekrar ilan edilemez)
+        AssetAlreadyRegistered,
+        /// Varlık (asset) bulunamadı
+        AssetNotFound,
+        /// Sahiplik geçmişi dolu (max 100 transfer)
+        OwnershipHistoryFull,
         /// Ticaret TL ödemesi beklemiyor (PaymentSent veya AwaitingPayment değil)
         NotAwaitingOrPaymentSent,
         /// Geçersiz KOD/TL kuru (sıfır olamaz)
@@ -778,6 +908,69 @@ pub mod pallet {
             bond.saturated_into()
         }
 
+        /// Varlık sahipliğini devret (Asset Registry)
+        /// Ticaret tamamlandığında çağrılır.
+        fn transfer_asset_ownership(
+            listing_id: u64,
+            trade_id: u64,
+            from: &T::AccountId,
+            to: &T::AccountId,
+            transfer_type: TransferType,
+            price: BalanceOf<T>,
+            tl_price: u64,
+        ) -> DispatchResult {
+            let listing = <Listings<T>>::get(listing_id)
+                .ok_or(Error::<T>::ListingNotFound)?;
+            let asset_id = listing.asset_id;
+
+            let mut asset = <Assets<T>>::get(asset_id)
+                .ok_or(Error::<T>::AssetNotFound)?;
+
+            let now = frame_system::Pallet::<T>::block_number();
+
+            // Sahiplik kaydı oluştur
+            let record = OwnershipRecord {
+                from: from.clone(),
+                to: to.clone(),
+                trade_id,
+                listing_id,
+                block_number: now,
+                transfer_type: transfer_type.clone(),
+                price,
+                tl_price,
+            };
+
+            // Geçmişe ekle
+            <AssetOwnershipHistory<T>>::mutate(asset_id, |history| {
+                let h = history.get_or_insert_with(|| BoundedVec::default());
+                let _ = h.try_push(record);
+            });
+
+            // Asset'i güncelle
+            asset.current_owner = to.clone();
+            asset.transfer_count = asset.transfer_count.saturating_add(1);
+            asset.last_transfer_at = now;
+            <Assets<T>>::insert(asset_id, asset);
+
+            // OwnerAssets: eski sahipten çıkar, yeni sahibe ekle
+            <OwnerAssets<T>>::mutate(from, |assets| {
+                assets.retain(|id| *id != asset_id);
+            });
+            <OwnerAssets<T>>::mutate(to, |assets| {
+                let _ = assets.try_push(asset_id);
+            });
+
+            Self::deposit_event(Event::OwnershipTransferred {
+                asset_id,
+                from: from.clone(),
+                to: to.clone(),
+                trade_id,
+                transfer_type,
+            });
+
+            Ok(())
+        }
+
         /// Merkle proof doğrulama (hash zaten hesaplanmış)
         /// 
         /// - `root`: Beklenen Merkle root
@@ -884,6 +1077,58 @@ pub mod pallet {
             // TL ticaretinde price alanı bond miktarını saklar
             let effective_price = if is_tl_trade { effective_bond } else { price };
 
+            // 7a. Varlık sicili (Asset Registry) — ürünü tanımlayan hash oluştur
+            let asset_hash = blake2_256(
+                &[
+                    conditions_root.as_ref(),
+                    device_attestation_hash.unwrap_or([0u8; 32]).as_ref(),
+                ].concat()
+            );
+
+            let now = frame_system::Pallet::<T>::block_number();
+
+            // Aynı asset_hash daha önce kaydedilmişse mevcut asset_id'yi kullan
+            // (ikinci el satış: aynı ürünün yeniden ilanı)
+            let asset_id = if let Some(existing_id) = <AssetByHash<T>>::get(asset_hash) {
+                // Mevcut varlık — yeniden ilan ediliyor (ikinci el)
+                // Sadece şu anki sahip ilan edebilir
+                if let Some(asset) = <Assets<T>>::get(existing_id) {
+                    ensure!(asset.current_owner == seller, Error::<T>::NotAuthorized);
+                }
+                existing_id
+            } else {
+                // Yeni varlık kaydı oluştur
+                let new_id = <NextAssetId<T>>::get();
+                <NextAssetId<T>>::put(new_id + 1);
+
+                let asset = Asset {
+                    original_owner: seller.clone(),
+                    current_owner: seller.clone(),
+                    asset_hash,
+                    device_attestation_hash,
+                    origin_listing_id: listing_id,
+                    transfer_count: 0,
+                    created_at: now,
+                    last_transfer_at: now,
+                };
+                <Assets<T>>::insert(new_id, asset);
+                <AssetByHash<T>>::insert(asset_hash, new_id);
+
+                // Satıcının sahip olduğu varlık listesine ekle
+                <OwnerAssets<T>>::mutate(&seller, |assets| {
+                    let _ = assets.try_push(new_id);
+                });
+
+                Self::deposit_event(Event::AssetRegistered {
+                    asset_id: new_id,
+                    owner: seller.clone(),
+                    asset_hash,
+                    listing_id,
+                });
+
+                new_id
+            };
+
             let listing = Listing {
                 seller: seller.clone(),
                 price: effective_price,
@@ -896,7 +1141,8 @@ pub mod pallet {
                 tl_price,
                 seller_iban_hash,
                 status: ListingStatus::Active,
-                created_at: frame_system::Pallet::<T>::block_number(),
+                created_at: now,
+                asset_id,
             };
             Listings::<T>::insert(listing_id, listing);
 
@@ -1285,6 +1531,17 @@ pub mod pallet {
             <TotalTradesCompleted<T>>::mutate(|n| *n = n.saturating_add(1));
             <TotalVolume<T>>::mutate(|v| *v = v.saturating_add(trade.price));
 
+            // Sahiplik devri: satıcıdan alıcıya
+            Self::transfer_asset_ownership(
+                trade.listing_id,
+                trade_id,
+                &trade.seller,
+                &trade.buyer,
+                TransferType::Sale,
+                trade.price,
+                0, // KOD ticareti
+            )?;
+
             Self::deposit_event(Event::TradeCompleted {
                 trade_id,
                 buyer: trade.buyer,
@@ -1388,12 +1645,23 @@ pub mod pallet {
                     amount: refund_amount,
                 });
 
+                // Anlaşmazlık sonucu alıcı kazandı: sahiplik alıcıya geçer
+                Self::transfer_asset_ownership(
+                    trade.listing_id,
+                    trade_id,
+                    &trade.seller,
+                    &trade.buyer,
+                    TransferType::DisputeResolution,
+                    trade.price,
+                    trade.tl_price,
+                )?;
+
                 Self::deposit_event(Event::DisputeResolved {
                     trade_id,
                     winner: trade.buyer.clone(),
                 });
             } else {
-                // Satıcı kazandı
+                // Satıcı kazandı — ürün satıcıda kalır, sahiplik transferi gerekli değil
                 // Alıcının kilitlenen fonlarını çöz
                 T::Currency::unreserve(&trade.buyer, buyer_reserved);
 
@@ -1798,6 +2066,17 @@ pub mod pallet {
             <TotalTradesCompleted<T>>::mutate(|n| *n = n.saturating_add(1));
             // TL ticaretlerinde volume'u bond (KOD) miktarı olarak say
             <TotalVolume<T>>::mutate(|v| *v = v.saturating_add(trade.price));
+
+            // Sahiplik devri: satıcıdan alıcıya (TL ticareti)
+            Self::transfer_asset_ownership(
+                trade.listing_id,
+                trade_id,
+                &trade.seller,
+                &trade.buyer,
+                TransferType::TlSale,
+                trade.price,
+                trade.tl_price,
+            )?;
 
             Self::deposit_event(Event::TlPaymentConfirmed {
                 trade_id,
