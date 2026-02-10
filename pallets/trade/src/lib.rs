@@ -768,8 +768,13 @@ pub mod pallet {
         /// Varsayılan: %10 teminat
         pub fn calculate_bond_from_tl(tl_price_kurus: u64) -> BalanceOf<T> {
             let rate = <KodTlRate<T>>::get().max(1); // sıfıra bölme engelle
-            let tl_as_kod = tl_price_kurus / rate;   // KOD karşılığı
-            let bond = tl_as_kod * 10 / 100;         // %10 teminat
+            // Önce çarp sonra böl — küçük miktarlarda integer division kaybını önler
+            // bond = tl_price_kurus * 10 / (rate * 100)
+            let bond = tl_price_kurus
+                .saturating_mul(10)
+                .checked_div(rate.saturating_mul(100))
+                .unwrap_or(0)
+                .max(1); // en az 1 birim (MinBond kontrolü ayrıca yapılır)
             bond.saturated_into()
         }
 
@@ -1218,6 +1223,9 @@ pub mod pallet {
             ensure!(trade.buyer == caller, Error::<T>::NotAuthorized);
 
             // Escrow durumunda mı?
+            // NOT: TL ticaretleri Escrow yerine AwaitingPayment/PaymentSent akışını kullanır.
+            // confirm_delivery sadece KOD-KOD ticaretleri için geçerlidir.
+            // TL ticaretleri confirm_tl_payment extrinsic'ini kullanmalıdır.
             ensure!(trade.status == TradeStatus::Escrow, Error::<T>::InvalidStatus);
 
             // Teslimat attestation hash ekle (varsa)
@@ -1343,11 +1351,20 @@ pub mod pallet {
             // Anlaşmazlık durumunda mı?
             ensure!(trade.status == TradeStatus::Disputed, Error::<T>::InvalidStatus);
 
+            // TL ticaretlerinde alıcıdan sadece buyer_bond kilitlenmişti (fiyat off-chain TL ile ödenir).
+            // KOD ticaretlerinde ise price + buyer_bond kilitlenmiştir.
+            let is_tl = trade.tl_price > 0;
+            let buyer_reserved = if is_tl {
+                trade.buyer_bond
+            } else {
+                trade.price.saturating_add(trade.buyer_bond)
+            };
+
             if buyer_wins {
-                // Alıcı kazandı - iade + satıcı teminatı alıcıya
-                T::Currency::unreserve(&trade.buyer, trade.price + trade.buyer_bond);
+                // Alıcı kazandı - alıcının kilitlenen fonlarını geri ver
+                T::Currency::unreserve(&trade.buyer, buyer_reserved);
                 
-                // Satıcının teminatını alıcıya ver
+                // Satıcının teminatını alıcıya ver (ceza)
                 T::Currency::repatriate_reserved(
                     &trade.seller,
                     &trade.buyer,
@@ -1357,10 +1374,18 @@ pub mod pallet {
 
                 trade.status = TradeStatus::Refunded;
 
+                let refund_amount = if is_tl {
+                    // TL: sadece satıcı bondu ceza olarak alıcıya gider
+                    trade.seller_bond
+                } else {
+                    // KOD: fiyat iadesi + satıcı bondu cezası
+                    trade.price.saturating_add(trade.seller_bond)
+                };
+
                 Self::deposit_event(Event::Refunded {
                     trade_id,
                     buyer: trade.buyer.clone(),
-                    amount: trade.price + trade.seller_bond,
+                    amount: refund_amount,
                 });
 
                 Self::deposit_event(Event::DisputeResolved {
@@ -1368,16 +1393,27 @@ pub mod pallet {
                     winner: trade.buyer.clone(),
                 });
             } else {
-                // Satıcı kazandı - normal tamamlama + alıcı teminatı satıcıya
-                T::Currency::unreserve(&trade.buyer, trade.price + trade.buyer_bond);
+                // Satıcı kazandı
+                // Alıcının kilitlenen fonlarını çöz
+                T::Currency::unreserve(&trade.buyer, buyer_reserved);
 
-                // Satıcıya ödeme + alıcının teminatı
-                T::Currency::transfer(
-                    &trade.buyer,
-                    &trade.seller,
-                    trade.price + trade.buyer_bond,
-                    frame_support::traits::ExistenceRequirement::AllowDeath,
-                )?;
+                if is_tl {
+                    // TL ticareti: alıcının KOD bondu satıcıya ceza olarak gider
+                    T::Currency::transfer(
+                        &trade.buyer,
+                        &trade.seller,
+                        trade.buyer_bond,
+                        frame_support::traits::ExistenceRequirement::AllowDeath,
+                    )?;
+                } else {
+                    // KOD ticareti: fiyat + alıcının bondu satıcıya gider
+                    T::Currency::transfer(
+                        &trade.buyer,
+                        &trade.seller,
+                        trade.price.saturating_add(trade.buyer_bond),
+                        frame_support::traits::ExistenceRequirement::AllowDeath,
+                    )?;
+                }
 
                 // Satıcının kendi teminatını geri ver
                 T::Currency::unreserve(&trade.seller, trade.seller_bond);
