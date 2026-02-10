@@ -279,7 +279,7 @@ node/
 
 ## 📈 Yol Haritası
 
-### ✅ Tamamlandı (v3.1.0)
+### ✅ Tamamlandı (v4.0.0)
 
 - [x] Proof of Work konsensus (SHA3-256)
 - [x] Blok ödülleri (halving ile)
@@ -292,13 +292,20 @@ node/
   - [x] Teslimat onayı (diagnostik hash dahil)
   - [x] Anlaşmazlık açma/çözme (blockchain kanıtları ile)
   - [x] KOD-only modu
+  - [x] **Şifreli sözleşme desteği (NaCl Box - x25519-xsalsa20-poly1305)**
+  - [x] **EncryptedContracts storage (max 8KB)**
+  - [x] **ContractEncryptionKeys storage (taraf başına şifreli anahtar)**
 - [x] Multi-platform build (Linux, macOS, Windows)
 - [x] Website (kod.services)
+  - [x] Mining sayfası (download + quick start)
+  - [x] **Explorer sayfası (trade sorgulama + sözleşme deşifreleme)**
 - [x] **Mobil uygulama (React Native/Expo)**
   - [x] Blockchain entegrasyonu (@polkadot/api)
   - [x] PhoneDoctor tarzı 12 cihaz testi
   - [x] Otomatik QR oluşturma + tarama
   - [x] Trade detay: sözleşme hash, diagnostic rapor, tam blockchain verisi
+  - [x] **NaCl Box şifreleme ile sözleşme gizliliği**
+  - [x] **12 kelime ile sözleşme deşifreleme**
 
 ### 🔄 Devam Eden
 
@@ -310,18 +317,15 @@ node/
 ### 📋 Planlanan
 
 #### Kısa Vade (1-2 Hafta)
-- [ ] Off-chain araçlar (hash hesaplama)
-- [ ] Detaylı dokümantasyon
 - [ ] Bildirim sistemi (satıcıya yeni talep bildirimi)
+- [ ] IPFS entegrasyonu (resim/detay depolama)
 
 #### Orta Vade (1-2 Ay)
-- [ ] IPFS entegrasyonu (resim/detay depolama)
 - [ ] Sözleşme şablonları
-- [ ] Basit web arayüzü
 - [ ] Puan/değerlendirme sistemi
+- [ ] Hakem sistemi (çoklu hakem, oylama)
 
 #### Uzun Vade (3-6 Ay)
-- [ ] Hakem sistemi (çoklu hakem, oylama)
 - [ ] Topluluk şablonları
 - [ ] Çoklu dil desteği
 - [ ] Governance (DAO)

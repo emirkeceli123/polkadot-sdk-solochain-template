@@ -35,7 +35,7 @@ pub use pallet::*;
 pub mod pallet {
     use frame_support::{
         pallet_prelude::*,
-        traits::{Currency, ReservableCurrency},
+        traits::{Currency, ReservableCurrency, ConstU32},
     };
     use frame_system::pallet_prelude::*;
     use sp_runtime::traits::Saturating;
@@ -309,6 +309,28 @@ pub mod pallet {
     #[pallet::getter(fn has_diagnostics)]
     pub type HasDiagnostics<T: Config> = StorageMap<_, Blake2_128Concat, u64, bool, ValueQuery>;
 
+    /// Şifreli sözleşme içeriği (sadece taraflar + hakem deşifre edebilir)
+    /// AES-256 ile şifrelenmiş sözleşme JSON'u (max 8KB)
+    #[pallet::storage]
+    #[pallet::getter(fn encrypted_contracts)]
+    pub type EncryptedContracts<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        u64, // trade_id
+        BoundedVec<u8, ConstU32<8192>>, // şifreli veri
+    >;
+
+    /// Her taraf için şifreli simetrik anahtar (ECIES)
+    /// trade_id + account_id -> şifreli AES anahtarı
+    #[pallet::storage]
+    #[pallet::getter(fn contract_encryption_keys)]
+    pub type ContractEncryptionKeys<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat, u64,           // trade_id
+        Blake2_128Concat, T::AccountId,  // taraf adresi
+        BoundedVec<u8, ConstU32<256>>,   // şifreli simetrik anahtar
+    >;
+
     // ============================================
     // EVENTS (Blockchain'de yayınlanan olaylar)
     // ============================================
@@ -443,6 +465,13 @@ pub mod pallet {
             buyer: T::AccountId,
             reason_hash: Option<[u8; 32]>,
         },
+
+        /// Şifreli sözleşme blockchain'e yazıldı
+        ContractEncrypted {
+            trade_id: u64,
+            contract_size: u32,
+            parties_count: u32,
+        },
     }
 
     // ============================================
@@ -499,6 +528,10 @@ pub mod pallet {
         DiagnosticsRequired,
         /// Ticaret satıcı onayı beklemiyor
         NotPendingSellerConfirm,
+        /// Şifreli sözleşme verisi çok büyük
+        ContractDataTooLarge,
+        /// Şifreleme anahtarı çok büyük
+        EncryptionKeyTooLarge,
     }
 
     // ============================================
@@ -839,11 +872,15 @@ pub mod pallet {
         /// Satıcı ticareti kabul eder
         /// PendingSellerConfirm -> Escrow durumuna geçirir
         /// Taraflar ve şartlar blockchain'e yazılır
+        /// Şifreli sözleşme (opsiyonel) da blockchain'e kaydedilir
         #[pallet::call_index(10)]
-        #[pallet::weight(10_000)]
+        #[pallet::weight(50_000)]
         pub fn accept_trade(
             origin: OriginFor<T>,
             trade_id: u64,
+            encrypted_contract: Option<BoundedVec<u8, ConstU32<8192>>>,
+            buyer_enc_key: Option<BoundedVec<u8, ConstU32<256>>>,
+            seller_enc_key: Option<BoundedVec<u8, ConstU32<256>>>,
         ) -> DispatchResult {
             let seller = ensure_signed(origin)?;
 
@@ -859,6 +896,33 @@ pub mod pallet {
                 trade.status == TradeStatus::PendingSellerConfirm,
                 Error::<T>::NotPendingSellerConfirm
             );
+
+            // Şifreli sözleşme varsa kaydet
+            let mut parties_count: u32 = 0;
+            let mut contract_size: u32 = 0;
+
+            if let Some(ref enc_data) = encrypted_contract {
+                contract_size = enc_data.len() as u32;
+                <EncryptedContracts<T>>::insert(trade_id, enc_data);
+
+                // Alıcı anahtarını kaydet
+                if let Some(ref b_key) = buyer_enc_key {
+                    <ContractEncryptionKeys<T>>::insert(trade_id, &trade.buyer, b_key);
+                    parties_count += 1;
+                }
+
+                // Satıcı anahtarını kaydet
+                if let Some(ref s_key) = seller_enc_key {
+                    <ContractEncryptionKeys<T>>::insert(trade_id, &seller, s_key);
+                    parties_count += 1;
+                }
+
+                Self::deposit_event(Event::ContractEncrypted {
+                    trade_id,
+                    contract_size,
+                    parties_count,
+                });
+            }
 
             // Durumu Escrow'a geçir
             trade.status = TradeStatus::Escrow;

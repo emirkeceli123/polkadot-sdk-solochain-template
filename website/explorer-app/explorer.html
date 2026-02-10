@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KOD Chain - Explorer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+    <div class="bg-grid"></div>
+    <div class="glow-orb top"></div>
+    <div class="glow-orb bottom"></div>
+
+    <div class="container">
+        <!-- HEADER -->
+        <header>
+            <h1 class="logo">KOD<span>.</span>CHAIN</h1>
+            <nav class="nav">
+                <a href="index.html">Mining</a>
+                <a href="explorer.html" class="active">Explorer</a>
+            </nav>
+            <p class="tagline">Islem Sorgulama &amp; Sozlesme Goruntuleme</p>
+        </header>
+
+        <!-- 1. BAGLANTI PANELI -->
+        <section class="panel connection-panel">
+            <h2>Zincir Baglantisi</h2>
+            <div class="connection-row">
+                <input type="text" id="wsInput" value="ws://127.0.0.1:9944" placeholder="WebSocket adresi" />
+                <button id="btnConnect" class="btn btn-primary">Baglan</button>
+            </div>
+            <div id="connectionStatus" class="status-indicator">
+                <span class="status-dot offline"></span>
+                <span class="status-text">Bagli degil</span>
+            </div>
+            <div id="chainInfo" class="chain-info hidden">
+                <span id="chainName"></span>
+                <span class="separator">|</span>
+                <span>Blok: <strong id="bestBlock">-</strong></span>
+            </div>
+        </section>
+
+        <!-- 2. ZINCIR ISTATISTIKLERI -->
+        <section id="statsSection" class="stats-grid hidden">
+            <div class="stat-card">
+                <div class="stat-value" id="statTotalTrades">-</div>
+                <div class="stat-label">Toplam Ticaret</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="statCompleted">-</div>
+                <div class="stat-label">Tamamlanan</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="statVolume">-</div>
+                <div class="stat-label">Toplam Hacim (KOD)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="statListings">-</div>
+                <div class="stat-label">Toplam Ilan</div>
+            </div>
+        </section>
+
+        <!-- 3. TRADE SORGULA -->
+        <section id="querySection" class="panel hidden">
+            <h2>Trade Sorgula</h2>
+            <div class="query-row">
+                <input type="number" id="tradeIdInput" placeholder="Trade ID girin" min="0" />
+                <button id="btnQuery" class="btn btn-primary">Sorgula</button>
+            </div>
+            <div id="queryError" class="error-msg hidden"></div>
+            <div id="tradeResult" class="trade-result hidden"></div>
+        </section>
+
+        <!-- 4. SOZLESME DESIFRELEME -->
+        <section id="decryptSection" class="panel hidden">
+            <h2>Sozlesme Desifreleme</h2>
+            <div class="decrypt-container">
+                <p class="security-note">
+                    Kelimeleriniz sadece tarayicinizda islenir, hicbir sunucuya gonderilmez.
+                </p>
+                <textarea id="seedInput" rows="3" placeholder="12 kurtarma kelimenizi girin (boslukla ayirin)..."></textarea>
+                <button id="btnDecrypt" class="btn btn-accent">Desifre Et</button>
+                <div id="decryptError" class="error-msg hidden"></div>
+                <div id="decryptResult" class="decrypt-result hidden"></div>
+            </div>
+        </section>
+
+        <!-- 5. FOOTER -->
+        <footer>
+            <div class="security-footer">
+                Tum desifreleme islemleri tarayicinizda gerceklesir. Ozel anahtarlariniz hicbir zaman sunucuya gonderilmez.
+            </div>
+            <p>
+                <a href="https://github.com/emirkeceli123/polkadot-sdk-solochain-template">GitHub</a> &bull;
+                <a href="index.html">Mining</a> &bull;
+                <a href="https://polkadot.js.org/apps">Polkadot.js Apps</a>
+            </p>
+        </footer>
+    </div>
+
+    <script type="module" src="./main.js"></script>
+</body>
+</html>

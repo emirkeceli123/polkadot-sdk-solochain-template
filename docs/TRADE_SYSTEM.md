@@ -594,7 +594,14 @@ SALDIRI SENARYOLARI VE KORUMALARI
 - [x] Otomatik QR oluşturma (testler bitince)
 - [x] QR tarama ve blockchain'de doğrulama
 
-### Aşama 3: Gelişmiş Özellikler
+### Aşama 3: Sözleşme Gizliliği ✅
+- [x] **NaCl Box şifreleme** (x25519-xsalsa20-poly1305)
+- [x] **EncryptedContracts** on-chain storage (max 8KB)
+- [x] **ContractEncryptionKeys** per-party key wrapping
+- [x] **Explorer sayfası** (kod.services/explorer.html)
+- [x] **12 kelime ile tarayıcıda deşifreleme** (client-side)
+
+### Aşama 4: Gelişmiş Özellikler
 - [ ] Kargo kontratı (time-lock)
 - [ ] Sözleşme şablonları
 - [ ] Hakem sistemi (çoklu hakem)
@@ -783,6 +790,77 @@ useEffect(() => {
 Detaylı teknik dokümantasyon:
 - [kod-mobile/README.md](../../kod-mobile/README.md) - Kurulum ve kullanım
 - [kod-mobile/docs/TECHNICAL.md](../../kod-mobile/docs/TECHNICAL.md) - Mimari ve sorun giderme
+
+---
+
+## 🔐 Şifreli Sözleşme Sistemi (v4.0.0)
+
+### Neden Şifreleme?
+
+Trade sözleşmesi blockchain'e yazıldığında herkes görebilir. Tarafların gizliliğini korumak için sözleşme içeriği **NaCl Box** ile şifrelenir.
+
+### Nasıl Çalışır?
+
+```
+                    ŞİFRELEME AKIŞI
+                    ════════════════
+
+1. Her kullanıcı cüzdan oluştururken x25519 keypair türetir
+   └── Seed phrase → miniSecret → nacl.box.keyPair
+
+2. x25519 public key Supabase'e kaydedilir
+   └── kodcoin_address kolonu
+
+3. Satıcı ticareti kabul ederken:
+   ┌─────────────────────────────────────────────┐
+   │  a) Random simetrik anahtar üret (32 byte)  │
+   │  b) Sözleşme JSON'u → nacl.secretbox ile    │
+   │     simetrik anahtarla şifrele               │
+   │  c) Simetrik anahtarı → nacl.box ile         │
+   │     alıcının x25519 pubkey'i ile şifrele     │
+   │  d) Simetrik anahtarı → nacl.box ile         │
+   │     satıcının x25519 pubkey'i ile şifrele    │
+   └─────────────────────────────────────────────┘
+
+4. Blockchain'e yazılır:
+   ├── EncryptedContracts[trade_id] = şifreli sözleşme
+   ├── ContractEncryptionKeys[trade_id][buyer] = buyer wrapped key
+   └── ContractEncryptionKeys[trade_id][seller] = seller wrapped key
+
+5. Deşifreleme (Explorer veya mobil uygulama):
+   ┌─────────────────────────────────────────────┐
+   │  a) 12 kelime → miniSecret → x25519 secret  │
+   │  b) Wrapped key → nacl.box.open → simetrik  │
+   │  c) Şifreli içerik → nacl.secretbox.open    │
+   │  d) JSON parse → okunabilir sözleşme         │
+   └─────────────────────────────────────────────┘
+```
+
+### Wrapped Key Formatı
+
+```
+ephemeralPublicKey (32 byte) + nonce (24 byte) + encryptedSymKey (48 byte)
+= toplam 104 byte
+```
+
+### Explorer (kod.services/explorer.html)
+
+Web tabanlı sözleşme görüntüleyici:
+- Node'a WebSocket ile bağlanır
+- Trade ID ile sorgulama
+- Zincir istatistikleri (toplam trade, hacim, ilan sayısı)
+- 12 kelime ile client-side deşifreleme (sunucuya hiçbir şey gönderilmez)
+- Vite + vanilla JS, tek HTML dosyası (inline JS/CSS)
+
+### Güvenlik
+
+| Özellik | Detay |
+|---------|-------|
+| Algoritma | NaCl Box (x25519-xsalsa20-poly1305) |
+| Simetrik | NaCl SecretBox (xsalsa20-poly1305) |
+| Key Exchange | Ephemeral Diffie-Hellman |
+| Deşifreleme | Sadece client-side (tarayıcı/uygulama) |
+| Sunucu | Hiçbir private key sunucuya gitmez |
 
 ---
 

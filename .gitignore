@@ -1,1 +1,12 @@
 target/
+.DS_Store
+
+# Local Netlify folder
+.netlify
+
+# Explorer app build artifacts
+website/explorer-app/node_modules/
+
+# Deploy temp folder
+website-deploy/
+release-upload/
