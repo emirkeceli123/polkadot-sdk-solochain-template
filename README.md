@@ -86,6 +86,7 @@ Satıcı → İlan Ver → Alıcı Satın Al → Satıcı Kabul → Escrow / TL 
 - ✅ Anlaşmazlık çözümü (blockchain kanıtları ile)
 - ✅ Teminat sistemi
 - ✅ KOD-only modu (blok 21M sonrası ~4 yıl)
+- ✅ **Varlık Sicili (Asset Registry)** — ticaret tamamlanınca sahiplik otomatik devredilir, tam geçmiş on-chain
 
 ---
 
@@ -157,6 +158,29 @@ Detaylar için: [kod-mobile/README.md](../kod-mobile/README.md)
 ---
 
 ## 📝 Changelog
+
+### v7.0.0 - Varlık Sicili (Asset Registry) (2026-02-10)
+
+**Blockchain:**
+- ✅ **Asset Registry** — her ilan bir varlık (ürün) kaydı oluşturur
+- ✅ Ticaret tamamlanınca sahiplik otomatik devredilir (satıcı → alıcı)
+- ✅ Tam sahiplik geçmişi on-chain (`OwnershipRecord`)
+- ✅ İkinci el desteği: aynı ürün tekrar satışa çıkarılabilir (mevcut asset_id kullanılır)
+- ✅ Anlaşmazlık sonucu sahiplik devri (`DisputeResolution`)
+- ✅ Yeni storage: `Assets`, `AssetOwnershipHistory`, `OwnerAssets`, `AssetByHash`
+- ✅ Yeni eventler: `AssetRegistered`, `OwnershipTransferred`
+
+### v6.1.0 - Bugfix: TL Trade Dispute & Bond (2026-02-10)
+
+**Blockchain:**
+- ✅ **resolve_dispute KRİTİK FIX**: TL trade'lerde buyer_reserved doğru hesaplanıyor
+- ✅ **calculate_bond_from_tl**: integer division kaybı düzeltildi
+- ✅ **confirm_delivery** açıklayıcı yorum
+
+**Mobil:**
+- ✅ IBAN hash blake2_256 ile (chain ile tutarlı)
+- ✅ Alıcı IBAN UX iyileştirmesi (ayrı "Banka Bilgileri" bölümü)
+- ✅ PaymentSent durumunda alıcıya bilgi kartı
 
 ### v6.0.0 - TL Ödeme + 6sn Blok + Mobil TL Akışı (2026-02)
 

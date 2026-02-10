@@ -635,9 +635,17 @@ SALDIRI SENARYOLARI VE KORUMALARI
 - [x] **Explorer sayfası** (kod.services/explorer.html)
 - [x] **12 kelime ile tarayıcıda deşifreleme** (client-side)
 
-### Aşama 4: Gelişmiş Özellikler
+### Aşama 4: Varlık Sicili (v7.0.0) ✅
+- [x] **Asset Registry** — ürün sahipliği on-chain takip
+- [x] `Asset` struct: current_owner, original_owner, asset_hash, transfer_count
+- [x] `OwnershipRecord`: from, to, trade_id, transfer_type (Sale/TlSale/DisputeResolution)
+- [x] `create_listing` ile otomatik varlık kaydı
+- [x] Ticaret tamamlanınca sahiplik otomatik devri
+- [x] İkinci el desteği: aynı ürün mevcut asset_id ile yeniden ilanlanabilir
+- [x] Explorer'dan sorgulanabilir: `assets`, `assetOwnershipHistory`, `ownerAssets`
+
+### Aşama 5: Gelişmiş Özellikler
 - [ ] Kargo kontratı (time-lock)
-- [ ] Sözleşme şablonları
 - [ ] Hakem sistemi (çoklu hakem)
 - [ ] Puan/değerlendirme
 
@@ -898,6 +906,55 @@ Web tabanlı sözleşme görüntüleyici:
 
 ---
 
+## 📦 Varlık Sicili (Asset Registry — v7.0.0)
+
+Her ürün blockchain'de benzersiz bir kimlikle takip edilir. Ticaret tamamlandığında sahiplik otomatik devredilir.
+
+```
+                     VARLIK SİCİLİ AKIŞI
+                     ═══════════════════
+
+1. İLAN OLUŞTUR
+   Alice → create_listing(...)
+   → AssetRegistered { asset_id: 0, owner: Alice, asset_hash: 0x... }
+   → Asset { current_owner: Alice, original_owner: Alice, transfer_count: 0 }
+
+2. TİCARET TAMAMLANDI
+   Bob → confirm_delivery / confirm_tl_payment
+   → OwnershipTransferred { asset_id: 0, from: Alice, to: Bob, transfer_type: Sale }
+   → Asset { current_owner: Bob, original_owner: Alice, transfer_count: 1 }
+
+3. İKİNCİ EL SATIŞ
+   Bob → create_listing(...) (aynı ürün)
+   → Mevcut asset_id: 0 kullanılır (asset_hash eşleşir)
+
+4. Charlie alır → transfer_count: 2
+
+   EXPLORER SORGUSU:
+   ┌──────────────────────────────────────────┐
+   │  assets(0) →                             │
+   │    current_owner: Charlie                │
+   │    original_owner: Alice                 │
+   │    transfer_count: 2                     │
+   │                                          │
+   │  assetOwnershipHistory(0) →              │
+   │    [0] Alice → Bob   (Trade #1, Sale)    │
+   │    [1] Bob → Charlie (Trade #5, TlSale)  │
+   │                                          │
+   │  ownerAssets(Charlie) → [0]              │
+   └──────────────────────────────────────────┘
+```
+
+### Transfer Tipleri
+
+| Tip | Açıklama |
+|-----|----------|
+| `Sale` | Normal KOD ticareti tamamlandı |
+| `TlSale` | TL ödemeli ticaret tamamlandı |
+| `DisputeResolution` | Anlaşmazlık sonucu alıcıya verildi |
+
+---
+
 ## 📝 Özet
 
 ```
@@ -914,6 +971,11 @@ Ne zaman?
 ├── İlan: Satıcı + Cihaz imzası
 ├── Anlaşma: Alıcı + Satıcı imzası
 └── Teslimat: Cihaz + Alıcı + Satıcı imzası
+
+Ticaret tamamlanınca?
+├── Sahiplik otomatik devredilir (Asset Registry)
+├── Tam geçmiş on-chain'de saklanır
+└── İkinci el satışlarda ürün sicili korunur
 
 Anlaşmazlıkta?
 ├── Tüm imzalar blockchain'de

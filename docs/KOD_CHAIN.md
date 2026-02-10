@@ -189,6 +189,23 @@ Blok 21,000,000'den sonra (~4 yıl):
 | `set_trading_paused` | Admin | Acil durum durdurma |
 | `set_kod_only_block` | Admin | KOD-only bloğunu değiştirir |
 
+### Varlık Sicili (Asset Registry)
+
+Ticaret tamamlandığında ürün sahipliği otomatik olarak devredilir ve tam geçmiş on-chain'de saklanır.
+
+| Storage | Açıklama |
+|---------|----------|
+| `assets(asset_id)` | Varlık bilgisi: current_owner, original_owner, transfer_count, asset_hash |
+| `assetOwnershipHistory(asset_id)` | Sahiplik geçmişi: kimden kime, hangi ticaretle, ne zaman, fiyat |
+| `ownerAssets(account)` | Kullanıcının sahip olduğu tüm varlık ID'leri |
+| `assetByHash(hash)` | Ürün hash'inden asset_id lookup |
+
+**Nasıl Çalışır:**
+1. `create_listing` → Ürün otomatik olarak sicile kaydedilir (`AssetRegistered` event)
+2. `confirm_delivery` / `confirm_tl_payment` → Sahiplik alıcıya geçer (`OwnershipTransferred` event)
+3. `resolve_dispute` (alıcı kazanırsa) → Sahiplik alıcıya devredilir
+4. İkinci el: Aynı ürün tekrar satışa çıkarılabilir, mevcut asset_id korunur
+
 ---
 
 ## ⛏️ Madencilik
@@ -281,7 +298,7 @@ node/
 
 ## 📈 Yol Haritası
 
-### ✅ Tamamlandı (v4.0.0)
+### ✅ Tamamlandı (v7.0.0)
 
 - [x] Proof of Work konsensus (SHA3-256)
 - [x] Blok ödülleri (halving ile)
@@ -297,6 +314,9 @@ node/
   - [x] **Şifreli sözleşme desteği (NaCl Box - x25519-xsalsa20-poly1305)**
   - [x] **EncryptedContracts storage (max 8KB)**
   - [x] **ContractEncryptionKeys storage (taraf başına şifreli anahtar)**
+  - [x] **Sözleşme maddeleri (ClauseType + ContractClause)**
+  - [x] **TL ödeme entegrasyonu** (AwaitingPayment, PaymentSent, IBAN hash)
+  - [x] **Varlık Sicili (Asset Registry)** — sahiplik takibi on-chain
 - [x] Multi-platform build (Linux, macOS, Windows)
 - [x] Website (kod.services)
   - [x] Mining sayfası (download + quick start)
@@ -308,6 +328,7 @@ node/
   - [x] Trade detay: sözleşme hash, diagnostic rapor, tam blockchain verisi
   - [x] **NaCl Box şifreleme ile sözleşme gizliliği**
   - [x] **12 kelime ile sözleşme deşifreleme**
+  - [x] **TL satış/alış akışı (IBAN, blake2 hash)**
 
 ### 🔄 Devam Eden
 
@@ -323,9 +344,9 @@ node/
 - [ ] IPFS entegrasyonu (resim/detay depolama)
 
 #### Orta Vade (1-2 Ay)
-- [ ] Sözleşme şablonları
 - [ ] Puan/değerlendirme sistemi
 - [ ] Hakem sistemi (çoklu hakem, oylama)
+- [ ] Kargo kontratı (time-lock)
 
 #### Uzun Vade (3-6 Ay)
 - [ ] Topluluk şablonları
